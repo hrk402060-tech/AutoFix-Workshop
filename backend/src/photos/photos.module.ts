@@ -54,7 +54,7 @@ class PhotosService {
     try {
       return { body: await readFile(join(this.root(), photo.path)), mime: photo.mime };
     } catch {
-      throw new NotFoundException('照片文件不存在，请联系管理员检查备份');
+      throw new NotFoundException('照片文件不存在，请联系管理员检查上传文件');
     }
   }
 }

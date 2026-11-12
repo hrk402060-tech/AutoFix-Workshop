@@ -34,40 +34,6 @@ PC 页面参照需求 PDF 第 11 页的深色导航、紧凑表格、业务统�
 
 当前边界：单店单仓库；未做采购供应商账款、财务结算、短信、OCR、扫码引擎、HTTPS、自动照片归档和公网压力测试。
 
-## 本地开发（PowerShell）
-
-```powershell
-cd backend
-npm ci
-$env:DATABASE_PATH = '../data/autofix.sqlite'
-$env:UPLOAD_DIR = '../uploads'
-$env:JWT_SECRET = 'local-only-development-secret-32-characters'
-npm run start:dev
-```
-
-另开终端：
-
-```powershell
-cd web
-npm ci
-npm run dev -- --host 127.0.0.1 --port 5173
-```
-
-Vite 代理 `/api` 到 `localhost:3000`。后端也会在存在 `web/dist` 时直接提供构建好的 PC 页面。已有端口被占用时请使用其他端口。
-
-空数据库首次启动创建 `admin`，密码取 `ADMIN_PASSWORD` 环境变量，未设置时为 `Admin@123`。可在 PC「账号设置」修改密码。登录页不预填密码。
-
-```powershell
-cd backend
-npm run test:integration
-cd ../web
-npm run build
-```
-
-集成测试使用独立的 `tmp/pc-check-*` 数据库和照片目录，不修改真实业务库，结束后自动停止测试进程。
-
-本次构建、旧库迁移、业务回归、页面检查及依赖审计结果见 [PC 验证记录](docs/PC-VALIDATION.md)。
-
 ## Ubuntu 24.04 部署
 
 先安装 Node.js 22、Git、SQLite CLI、编译依赖；内存紧张时在开发机或 CI 构建前端和后端，只在服务器安装生产依赖。不要在 1 GB 服务器上同时运行多个构建。
@@ -87,7 +53,7 @@ npm run build --prefix backend
 npm ci --prefix web
 npm run build --prefix web
 npm prune --omit=dev --prefix backend
-sudo install -d -o autofix -g autofix -m 750 data uploads backups logs
+sudo install -d -o autofix -g autofix -m 750 data uploads logs
 sudo install -m 600 deploy/autofix.env.example /etc/autofix-workshop.env
 sudoedit /etc/autofix-workshop.env
 # JWT_SECRET 换成至少 32 字符随机值；首次部署设置 ADMIN_PASSWORD
@@ -97,30 +63,24 @@ sudo systemctl enable --now autofix-workshop
 sudo systemctl status autofix-workshop
 ```
 
-已有目录时不要重新克隆；确认有数据备份后，在现有仓库 `git pull --ff-only`，依次构建并重启服务。升级启动会自动执行新的迁移；不要删除或重新初始化业务库。迁移增加维修记录、照片、库存单据、车辆创建人字段，旧车辆记录不丢失。
+已有目录时不要重新克隆；在现有仓库 `git pull --ff-only`，依次构建并重启服务。升级启动会自动执行新的迁移；不要删除或重新初始化业务库。迁移增加维修记录、照片、库存单据、车辆创建人字段，旧车辆记录不丢失。
 
 直接访问 `http://服务器IP:3000`，或安装 Nginx 后把 `deploy/nginx.conf` 放入 `sites-available` 并启用，访问 80 端口。数据库不监听网络端口，上传文件不提供公开静态目录。正式生产启动会拒绝占位或不足 32 字符的 JWT 密钥。
 
-## 容量与备份
+## 容量管理
 
 - 浏览器接受 JPEG/PNG/WebP 原图不超过 15 MB，压缩到最长边 1600 像素、JPEG；服务端单张上限 2 MB，单工单最多 120 张。
 - 照片额度默认 6 GB，可用 `UPLOAD_MAX_BYTES` 调整；上限按照片元数据累计，超过时拒绝上传，不自动删除业务照片。
-- SQLite 上限设为 131072 页（默认 4 KB 页时约 512 MB），为 OS、程序、照片和本机备份留空间。
-- `backup.sh` 使用 SQLite `.backup` 在线备份，保留最近 7 份数据库；照片为不可变文件，另做一份增量镜像到 `backups/uploads/`。可恢复范围以备份完成的时间为准。
+- SQLite 上限设为 131072 页（默认 4 KB 页时约 512 MB），为 OS、程序和照片留空间。
 - `cleanup-uploads.sh` 只清理一天前的 `.tmp` 临时文件并报告额度，不删除业务图片。照片已用空间包含元数据外文件时，应人工核查。
-- 本机备份不能抵御整台服务器丢失，另行把 `backups/` 复制到外部存储；本次未配置外部备份目标。
 
 ```bash
-sudo chmod +x deploy/backup.sh deploy/cleanup-uploads.sh
-sudo /opt/autofix-workshop/deploy/backup.sh
+sudo chmod +x deploy/cleanup-uploads.sh
 sudo /opt/autofix-workshop/deploy/cleanup-uploads.sh
 ```
 
 root crontab（服务器时区应明确设置，下面时间按服务器本地时区）：
 
 ```cron
-15 2 * * * /opt/autofix-workshop/deploy/backup.sh >> /opt/autofix-workshop/logs/backup.log 2>&1
 45 2 * * * /opt/autofix-workshop/deploy/cleanup-uploads.sh >> /opt/autofix-workshop/logs/uploads.log 2>&1
 ```
-
-恢复时先停止服务，保留当前 `data/` 和 `uploads/` 快照，再将所选备份恢复为 `data/autofix.sqlite`，配套恢复 `backups/uploads/` 中照片；停服期间移开旧 WAL/SHM 文件，确保目录归 `autofix` 用户所有，运行 `sqlite3 data/autofix.sqlite 'PRAGMA integrity_check;'` 后启动服务并抽查工单、照片和库存。不要在服务运行中覆盖数据库文件。
