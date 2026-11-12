@@ -180,6 +180,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState<string | null>(null);
+  const [orderVehicleId, setOrderVehicleId] = useState<string | undefined>();
+  const [returnToOrder, setReturnToOrder] = useState(false);
 
   const logout = useCallback(() => {
     localStorage.removeItem("autofix_token");
@@ -194,6 +196,8 @@ export function App() {
     setError("");
     setToast("");
     setLoading(false);
+    setOrderVehicleId(undefined);
+    setReturnToOrder(false);
   }, []);
   useEffect(() => {
     window.addEventListener("autofix-logout", logout);
@@ -261,6 +265,11 @@ export function App() {
   function openOrder(id: string) {
     setSelected(id);
     setTab("orders");
+  }
+  function openCreateOrder() {
+    setOrderVehicleId(undefined);
+    setReturnToOrder(false);
+    setModal("order");
   }
   if (boot)
     return (
@@ -337,7 +346,7 @@ export function App() {
                 })}
               </span>
               {user.role !== "WAREHOUSE" && (
-                <button className="primary" onClick={() => setModal("order")}>
+                <button className="primary" onClick={openCreateOrder}>
                   <Plus size={15} />
                   接车建单
                 </button>
@@ -365,7 +374,7 @@ export function App() {
               inventory={inventory}
               open={openOrder}
               go={go}
-              create={user.role !== "WAREHOUSE" ? () => setModal("order") : undefined}
+              create={user.role !== "WAREHOUSE" ? openCreateOrder : undefined}
             />
           )}
           {tab === "orders" &&
@@ -389,7 +398,10 @@ export function App() {
               orders={orders}
               user={user}
               open={openOrder}
-              create={() => setModal("vehicle")}
+              create={() => {
+                setReturnToOrder(false);
+                setModal("vehicle");
+              }}
               edit={(v) => setModal(`vehicle:${v.id}`)}
             />
           )}
@@ -459,14 +471,25 @@ export function App() {
               initial={vehicles.find((v) => modal === `vehicle:${v.id}`)}
               busy={busy}
               save={async (body, id) => {
+                if (id) {
+                  if (await mutate(() => api(`/vehicles/${id}`, body, "PUT")))
+                    setModal(null);
+                  return;
+                }
+                let created: Vehicle | undefined;
                 if (
-                  await mutate(() =>
-                    id
-                      ? api(`/vehicles/${id}`, body, "PUT")
-                      : post("/vehicles", body),
-                  )
-                )
-                  setModal(null);
+                  await mutate(async () => {
+                    created = await post<Vehicle>("/vehicles", body);
+                  })
+                ) {
+                  if (returnToOrder) {
+                    setOrderVehicleId(created?.id);
+                    setReturnToOrder(false);
+                    setModal("order");
+                  } else {
+                    setModal(null);
+                  }
+                }
               }}
             />
           )}
@@ -476,7 +499,11 @@ export function App() {
               users={users}
               user={user}
               busy={busy}
-              newVehicle={() => setModal("vehicle")}
+              initialVehicleId={orderVehicleId}
+              newVehicle={() => {
+                setReturnToOrder(true);
+                setModal("vehicle");
+              }}
               save={async (body) => {
                 let created: Detail | undefined;
                 if (
@@ -484,6 +511,7 @@ export function App() {
                     created = await post<Detail>("/work-orders", body);
                   })
                 ) {
+                  setOrderVehicleId(undefined);
                   setModal(null);
                   openOrder(created!.id);
                 }
@@ -947,13 +975,21 @@ function VehicleForm({
   busy: boolean;
   save: (body: unknown, id?: string) => void;
 }) {
+  const [formError, setFormError] = useState("");
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        save(values(e), initial?.id);
+        const body = values(e);
+        if (!body.plateNumber.trim() && !body.vin.trim()) {
+          setFormError("车牌号或 VIN 至少填写一项");
+          return;
+        }
+        setFormError("");
+        save(body, initial?.id);
       }}
     >
+      {formError && <p className="error" role="alert">{formError}</p>}
       <div className="form-grid">
         {[
           { name: "plateNumber", label: "车牌号", max: 20 },
@@ -986,6 +1022,7 @@ function CreateOrder({
   busy,
   save,
   newVehicle,
+  initialVehicleId,
 }: {
   vehicles: Vehicle[];
   users: User[];
@@ -993,6 +1030,7 @@ function CreateOrder({
   busy: boolean;
   save: (body: unknown) => void;
   newVehicle: () => void;
+  initialVehicleId?: string;
 }) {
   if (!vehicles.length)
     return (
@@ -1023,13 +1061,21 @@ function CreateOrder({
       }}
     >
       <Field label="车辆">
-        <select name="vehicleId" required>
+        <select
+          name="vehicleId"
+          required
+          defaultValue={initialVehicleId || vehicles[0]?.id}
+        >
           {vehicles.map((v) => (
             <option key={v.id} value={v.id}>
               {vehicleName(v)} · {v.brand} {v.model}
             </option>
           ))}
         </select>
+        <button type="button" className="text-button" onClick={newVehicle}>
+          <Plus size={15} />
+          新建车辆
+        </button>
       </Field>
       <Field label="客户维修需求">
         <textarea
@@ -1163,6 +1209,11 @@ function OrderDetail({
               .filter(Boolean)
               .join(" ")}{" "}
             · VIN {detail.vehicle?.vin || "未填写"}
+          </p>
+          <p>
+            客户 {detail.vehicle?.customerName || "未填写"}
+            {" · "}
+            电话 {detail.vehicle?.customerPhone || "未填写"}
           </p>
           <p>创建时间 {date(detail.createdAt)}</p>
         </div>
