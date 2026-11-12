@@ -1,0 +1,24 @@
+[Unit]
+Description=AutoFix Workshop Node service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autofix-workshop/backend
+Environment=NODE_ENV=production
+Environment=DATABASE_PATH=/opt/autofix-workshop/data/autofix.sqlite
+Environment=UPLOAD_DIR=/opt/autofix-workshop/uploads
+Environment=JWT_SECRET=change-this-jwt-secret
+Environment=API_PORT=3000
+ExecStart=/usr/bin/node /opt/autofix-workshop/backend/dist/main.js
+Restart=always
+RestartSec=5
+User=autofix
+Group=autofix
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,19 @@
+name: autofix-workshop
+
+services:
+  autofix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/autofix.sqlite
+      JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret}
+      API_PORT: 3000
+    ports:
+      - "80:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+
