@@ -21,10 +21,8 @@
   --on-dark-muted: #b7c9d8;
   --on-dark-faint: #9eb4c6;
   --brand-accent: #72c6d9;
-  --dark-border: rgb(217 226 236 / 14%);
   --dark-text: #d9e6ef;
   --dark-subtle: #a7bfd1;
-  --sidebar-faint: #829db3;
   --status-pending-text: #9b6a12;
   --status-progress-text: #168776;
   --status-review-text: #6351b9;
@@ -70,20 +68,15 @@ button.text-button { color: var(--primary); border: 0; background: transparent; 
 .brand svg { flex-shrink: 0; }
 .brand strong { display: block; color: var(--on-dark); font-size: 21px; }
 .brand small { display: block; margin-top: 4px; color: var(--on-dark-faint); font-size: 10px; }
-.shop-label { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--dark-border); border-bottom: 1px solid var(--dark-border); padding: 14px 20px; font-size: 11px; }
-.live-dot { width: 6px; height: 6px; background: var(--accent-teal); border-radius: 50%; }
 .sidebar nav { padding: 15px 9px; }
 .sidebar nav button { justify-content: start; color: var(--on-dark-muted); width: 100%; padding: 11px 13px; min-height: 43px; background: transparent; border: 0; margin-bottom: 4px; }
 .sidebar nav button.active { background: var(--primary-dark); color: var(--on-dark); box-shadow: inset 3px 0 var(--brand-accent); }
 .sidebar nav button:hover { color: var(--on-dark); background: var(--primary-hover); }
 .sidebar nav button.active:hover { background: var(--primary-dark); }
 .sidebar nav b { font-weight: 500; font-size: 10px; margin-left: auto; border-radius: 4px; background: var(--accent-amber); color: var(--sidebar); padding: 1px 5px; }
-.sidebar-bottom { margin-top: auto; padding: 18px 22px; border-top: 1px solid var(--dark-border); font-size: 11px; }
-.sidebar-bottom small { display: block; color: var(--sidebar-faint); margin-top: 4px; font-size: 10px; }
 .workspace { margin-left: 210px; width: calc(100% - 210px); min-width: 0; }
 .topbar { height: 65px; background: var(--topbar); color: var(--dark-text); display: flex; justify-content: space-between; align-items: center; padding: 0 26px; }
 .topbar-brand { font-size: 16px; font-weight: 600; }
-.topbar-brand small { margin-left: 14px; font-size: 11px; color: var(--dark-subtle); font-weight: 400; }
 .top-actions { display: flex; align-items: center; gap: 14px; }
 .top-actions button { color: var(--dark-text); }
 .account { border: 0; background: transparent; text-align: left; }
@@ -250,14 +243,13 @@ figcaption { display: flex; justify-content: space-between; font-size: 10px; col
 @media (max-width: 800px) {
   .sidebar { width: 64px; }
   .sidebar .brand { padding: 20px 15px; }
-  .sidebar .brand > div, .shop-label, .sidebar nav span, .sidebar-bottom { display: none; }
+  .sidebar .brand > div, .sidebar nav span { display: none; }
   .sidebar nav { padding: 9px 6px; }
   .sidebar nav button { padding: 12px 0; justify-content: center; position: relative; }
   .sidebar nav b { position: absolute; right: 0; top: 0; font-size: 8px; padding: 0 4px; }
   .workspace { margin-left: 64px; width: calc(100% - 64px); }
   .topbar { padding: 0 14px; }
   .topbar-brand { font-size: 12px; }
-  .topbar-brand small { display: none; }
   .top-actions { gap: 4px; }
   .account > span:last-child { display: none; }
   main { padding: 20px 15px 35px; }

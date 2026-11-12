@@ -278,10 +278,6 @@ export function App() {
     <div className="shell">
       <aside className="sidebar">
         <Brand />
-        <div className="shop-label">
-          <span className="live-dot" />
-          维修业务管理
-        </div>
         <nav aria-label="业务导航">
           {visibleTabs.map(({ key, title, icon: Icon }) => (
             <button
@@ -296,15 +292,11 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <span>AutoFix Workshop</span>
-          <small>单门店工作空间</small>
-        </div>
       </aside>
       <div className="workspace">
         <header className="topbar">
           <span className="topbar-brand">
-            汽车维修厂管理系统 <small>PC 管理端</small>
+            汽车维修厂管理系统
           </span>
           <div className="top-actions">
             <button
