@@ -12,6 +12,10 @@ import { WorkOrder } from './database/entities/work-order.entity';
 import { UsersModule } from './users/users.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
 import { WorkOrdersModule } from './work-orders/work-orders.module';
+import { businessEntities } from './database/business.entity';
+import { WriteModule } from './database/write.service';
+import { InventoryModule } from './inventory/inventory.module';
+import { PhotosModule } from './photos/photos.module';
 
 @Module({
   imports: [
@@ -34,12 +38,16 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
       WorkOrder,
       WorkOrderItem,
       WorkOrderParticipant,
+      ...businessEntities,
     ]),
     DatabaseSettingsModule,
+    WriteModule,
     AuthModule,
     UsersModule,
     VehiclesModule,
     WorkOrdersModule,
+    InventoryModule,
+    PhotosModule,
   ],
 })
 export class AppModule {}

@@ -5,6 +5,9 @@ export class Vehicle {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  createdById?: string;
+
   @Index()
   @Column({ length: 20 })
   plateNumber!: string;

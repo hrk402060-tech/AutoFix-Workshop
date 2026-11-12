@@ -1,13 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { randomUUID } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { Actor, audit, isManager, isStockManager, requireManager } from '../auth/actor';
+import { WriteService } from '../database/write.service';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { RepairRecord, Photo, MaterialRequest } from '../database/business.entity';
 import { User, UserRole } from '../database/entities/user.entity';
 import { Vehicle } from '../database/entities/vehicle.entity';
 import { WorkOrderItem } from '../database/entities/work-order-item.entity';
 import { WorkOrderParticipant } from '../database/entities/work-order-participant.entity';
-import { WorkOrder, WorkOrderStatus } from '../database/entities/work-order.entity';
+import { WorkOrder, WorkOrderStatus as S } from '../database/entities/work-order.entity';
 
 export interface WorkOrderInput {
   vehicleId: string;
@@ -18,68 +20,131 @@ export interface WorkOrderInput {
 
 @Injectable()
 export class WorkOrdersService {
-  constructor(
-    @InjectRepository(WorkOrder) private readonly orders: Repository<WorkOrder>,
-    @InjectRepository(WorkOrderItem) private readonly items: Repository<WorkOrderItem>,
-    @InjectRepository(WorkOrderParticipant) private readonly participants: Repository<WorkOrderParticipant>,
-    @InjectRepository(Vehicle) private readonly vehicles: Repository<Vehicle>,
-    @InjectRepository(User) private readonly users: Repository<User>,
-    @InjectRepository(AuditLog) private readonly logs: Repository<AuditLog>,
-  ) {}
+  constructor(private readonly db: DataSource, private readonly writes: WriteService) {}
 
-  private async audit(actorId: string, action: string, resourceId: string, metadata?: Record<string, unknown>) {
-    await this.logs.save(this.logs.create({ id: randomUUID(), actorId, action, resource: 'work_order', resourceId, metadata }));
+  async accessible(actor: Actor, id: string, manager = this.db.manager) {
+    const order = await manager.findOne(WorkOrder, { where: { id }, relations: { items: true, participants: { user: true } } });
+    if (!order) throw new NotFoundException('工单不存在');
+    if (!isStockManager(actor) && order.createdById !== actor.id && !order.participants.some((p) => p.userId === actor.id)) {
+      throw new ForbiddenException('无权查看此工单');
+    }
+    return order;
   }
 
-  async list(actor: { id: string; role: UserRole }) {
-    const query = this.orders.createQueryBuilder('order')
-      .leftJoinAndSelect('order.items', 'item')
-      .leftJoinAndSelect('order.participants', 'participant')
-      .leftJoinAndMapOne('order.vehicle', Vehicle, 'vehicle', 'vehicle.id = order.vehicleId')
-      .orderBy('order.createdAt', 'DESC');
-    if (![UserRole.OWNER, UserRole.MANAGER, UserRole.WAREHOUSE].includes(actor.role)) {
-      query.andWhere('(order.createdById = :id OR participant.userId = :id)', { id: actor.id });
+  async editable(actor: Actor, id: string, manager = this.db.manager) {
+    const order = await this.accessible(actor, id, manager);
+    if (actor.role === UserRole.WAREHOUSE) throw new ForbiddenException('仓管不能修改维修工单');
+    if ([S.COMPLETED, S.CANCELLED].includes(order.status)) throw new BadRequestException('已完成或已取消的工单不可修改');
+    return order;
+  }
+
+  async list(actor: Actor) {
+    const query = this.db.getRepository(WorkOrder).createQueryBuilder('o')
+      .leftJoinAndSelect('o.items', 'item')
+      .leftJoinAndSelect('o.participants', 'p')
+      .leftJoinAndSelect('p.user', 'u')
+      .leftJoinAndMapOne('o.vehicle', Vehicle, 'v', 'v.id = o.vehicleId')
+      .orderBy('o.createdAt', 'DESC');
+    if (!isStockManager(actor)) {
+      query.andWhere('(o.createdById = :id OR EXISTS(SELECT 1 FROM work_order_participants member WHERE member.workOrderId = o.id AND member.userId = :id))', { id: actor.id });
     }
     return query.getMany();
   }
 
-  async create(actor: { id: string }, input: WorkOrderInput) {
-    const vehicle = await this.vehicles.findOneBy({ id: input.vehicleId, isActive: true });
-    if (!vehicle) throw new NotFoundException('车辆不存在');
-    const order = this.orders.create({
-      id: randomUUID(),
-      orderNo: `WO-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${Math.floor(Math.random() * 9000 + 1000)}`,
-      vehicleId: input.vehicleId,
-      createdById: actor.id,
-      customerRequest: input.customerRequest,
-      status: WorkOrderStatus.PENDING,
+  async getOne(actor: Actor, id: string) {
+    const order = await this.accessible(actor, id);
+    const records = await this.db.manager.find(RepairRecord, { where: { workOrderId: id }, order: { createdAt: 'ASC' } });
+    const logs = await this.db.manager.find(AuditLog, { where: { resource: 'work_order', resourceId: id }, order: { createdAt: 'ASC' } });
+    const authorIds = [...new Set([...records.map((r) => r.authorId), ...logs.map((l) => l.actorId)])];
+    const authors = authorIds.length ? await this.db.manager.find(User, { where: { id: In(authorIds) }, select: ['id', 'name'] }) : [];
+    const names = new Map(authors.map((u) => [u.id, u.name]));
+    return {
+      ...order,
+      vehicle: await this.db.manager.findOneBy(Vehicle, { id: order.vehicleId }),
+      records: records.map((r) => ({ ...r, authorName: names.get(r.authorId) || '历史账号' })),
+      photos: await this.db.manager.find(Photo, { where: { workOrderId: id }, order: { createdAt: 'ASC' }, select: ['id', 'stage', 'authorId', 'createdAt', 'size'] }),
+      logs: logs.map((l) => ({ ...l, actorName: names.get(l.actorId) || '历史账号' })),
+    };
+  }
+
+  private async members(manager: EntityManager, ids: string[]) {
+    if (!ids.length) return [];
+    const users = await manager.find(User, { where: { id: In(ids), isActive: true } });
+    if (users.length !== ids.length || users.some((u) => u.role === UserRole.WAREHOUSE)) {
+      throw new BadRequestException('参与人员必须为有效维修账号');
+    }
+    return users;
+  }
+
+  async create(actor: Actor, input: WorkOrderInput) {
+    if (actor.role === UserRole.WAREHOUSE) throw new ForbiddenException('仓管不能接车建单');
+    if (!isManager(actor) && input.participantIds?.some((id) => id !== actor.id)) throw new ForbiddenException('员工不能分配其他人员');
+    const id = await this.writes.run(async (m) => {
+      const vehicle = await m.findOneBy(Vehicle, { id: input.vehicleId, isActive: true });
+      if (!vehicle) throw new NotFoundException('车辆不存在');
+      if (!isStockManager(actor) && vehicle.createdById !== actor.id) {
+        const related = await m.query('SELECT 1 FROM work_orders o WHERE o.vehicleId = ? AND (o.createdById = ? OR EXISTS(SELECT 1 FROM work_order_participants p WHERE p.workOrderId = o.id AND p.userId = ?)) LIMIT 1', [vehicle.id, actor.id, actor.id]);
+        if (!related.length) throw new ForbiddenException('无权为该车辆建单');
+      }
+      const ids = Array.from(new Set(input.participantIds?.length ? input.participantIds : [actor.id]));
+      await this.members(m, ids);
+      const order = await m.save(WorkOrder, m.create(WorkOrder, {
+        orderNo: `WO-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8).toUpperCase()}`,
+        vehicleId: input.vehicleId, createdById: actor.id, customerRequest: input.customerRequest, status: S.PENDING,
+      }));
+      await m.save(WorkOrderItem, input.itemTitles.map((title) => m.create(WorkOrderItem, { workOrderId: order.id, title })));
+      await m.save(WorkOrderParticipant, ids.map((userId) => m.create(WorkOrderParticipant, { workOrderId: order.id, userId })));
+      await audit(m, actor, 'CREATE', 'work_order', order.id);
+      return order.id;
     });
-    await this.orders.save(order);
-    const itemEntities = (input.itemTitles || []).filter(Boolean).map((title) => this.items.create({ id: randomUUID(), workOrderId: order.id, title }));
-    if (itemEntities.length) await this.items.save(itemEntities);
-    const userIds = Array.from(new Set([actor.id, ...(input.participantIds || [])]));
-    const validUsers = await this.users.findByIds(userIds);
-    await this.participants.save(validUsers.map((user) => this.participants.create({ id: randomUUID(), workOrderId: order.id, userId: user.id })));
-    await this.audit(actor.id, 'CREATE', order.id, { vehicleId: input.vehicleId });
-    return this.getOne(order.id);
+    return this.getOne(actor, id);
   }
 
-  async getOne(id: string) {
-    const order = await this.orders.findOne({ where: { id }, relations: { items: true, participants: { user: true } } });
-    if (!order) throw new NotFoundException('工单不存在');
-    return order;
+  async assign(actor: Actor, id: string, participantIds: string[]) {
+    requireManager(actor);
+    await this.writes.run(async (m) => {
+      const order = await this.editable(actor, id, m);
+      if (![S.PENDING, S.REPAIRING, S.REWORKING].includes(order.status)) throw new BadRequestException('待验收工单不可重新分配');
+      const ids = [...new Set(participantIds)];
+      if (!ids.length) throw new BadRequestException('至少选择一名参与人员');
+      await this.members(m, ids);
+      const existing = order.participants.map((p) => p.userId);
+      for (const userId of existing.filter((userId) => !ids.includes(userId))) {
+        await m.delete(WorkOrderParticipant, { workOrderId: id, userId });
+      }
+      await m.save(WorkOrderParticipant, ids.filter((userId) => !existing.includes(userId)).map((userId) => m.create(WorkOrderParticipant, { workOrderId: id, userId })));
+      await audit(m, actor, 'ASSIGN', 'work_order', id, { participantIds: ids });
+    });
+    return this.getOne(actor, id);
   }
 
-  async updateStatus(actor: { id: string; role: UserRole }, id: string, status: WorkOrderStatus, note?: string) {
-    const order = await this.getOne(id);
-    const canManage = [UserRole.OWNER, UserRole.MANAGER].includes(actor.role);
-    const isParticipant = order.createdById === actor.id || order.participants.some((participant) => participant.userId === actor.id);
-    if (!canManage && !isParticipant) throw new ForbiddenException('无权操作此工单');
-    order.status = status;
-    if (note !== undefined) order.acceptanceNote = note;
-    await this.orders.save(order);
-    await this.audit(actor.id, `STATUS_${status}`, id, { note });
-    return this.getOne(id);
+  async record(actor: Actor, id: string, note: string) {
+    await this.writes.run(async (m) => {
+      await this.editable(actor, id, m);
+      await m.save(RepairRecord, m.create(RepairRecord, { workOrderId: id, authorId: actor.id, note }));
+      await audit(m, actor, 'REPAIR_RECORD', 'work_order', id);
+    });
+    return this.getOne(actor, id);
+  }
+
+  async updateStatus(actor: Actor, id: string, status: S, note?: string) {
+    await this.writes.run(async (m) => {
+      const order = await this.editable(actor, id, m);
+      const transitions: Partial<Record<S, S[]>> = {
+        [S.PENDING]: [S.REPAIRING, S.CANCELLED],
+        [S.REPAIRING]: [S.WAITING_ACCEPTANCE, S.CANCELLED],
+        [S.REWORKING]: [S.WAITING_ACCEPTANCE, S.CANCELLED],
+        [S.WAITING_ACCEPTANCE]: [S.COMPLETED, S.REWORKING, S.CANCELLED],
+      };
+      if (!transitions[order.status]?.includes(status)) throw new BadRequestException('当前状态不允许此操作');
+      if ([S.COMPLETED, S.REWORKING, S.CANCELLED].includes(status)) requireManager(actor);
+      if ([S.REWORKING, S.CANCELLED].includes(status) && !note?.trim()) throw new BadRequestException('请填写返工或取消原因');
+      if (status === S.WAITING_ACCEPTANCE && !await m.countBy(RepairRecord, { workOrderId: id })) throw new BadRequestException('请先填写维修记录');
+      if ([S.COMPLETED, S.CANCELLED].includes(status) && await m.countBy(MaterialRequest, { workOrderId: id, status: 'PENDING' })) throw new BadRequestException('请先处理该工单的待审批物料申请');
+      await m.update(WorkOrder, id, { status, ...(note ? { acceptanceNote: note } : {}) });
+      await audit(m, actor, `STATUS_${status}`, 'work_order', id, { from: order.status, note });
+    });
+    return this.getOne(actor, id);
   }
 }
 

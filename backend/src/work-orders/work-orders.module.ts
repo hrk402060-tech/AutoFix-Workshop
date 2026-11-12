@@ -13,6 +13,7 @@ import { WorkOrdersService } from './work-orders.service';
   imports: [TypeOrmModule.forFeature([AuditLog, User, Vehicle, WorkOrder, WorkOrderItem, WorkOrderParticipant])],
   controllers: [WorkOrdersController],
   providers: [WorkOrdersService],
+  exports: [WorkOrdersService],
 })
 export class WorkOrdersModule {}
 

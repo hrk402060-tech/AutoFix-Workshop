@@ -11,6 +11,10 @@ class LoginDto {
   @MinLength(6)
   password!: string;
 }
+class PasswordDto {
+  @IsString() oldPassword!: string;
+  @IsString() @MinLength(8) newPassword!: string;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -25,6 +29,12 @@ export class AuthController {
   @Get('me')
   me(@Req() request: { user: { id: string } }) {
     return request.user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('password')
+  password(@Req() request: { user: { id: string } }, @Body() dto: PasswordDto) {
+    return this.auth.changePassword(request.user.id, dto.oldPassword, dto.newPassword);
   }
 }
 

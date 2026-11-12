@@ -9,6 +9,7 @@ export class DatabaseSettingsModule implements OnModuleInit {
     await this.dataSource.query('PRAGMA journal_mode = WAL');
     await this.dataSource.query('PRAGMA foreign_keys = ON');
     await this.dataSource.query('PRAGMA busy_timeout = 5000');
+    await this.dataSource.query('PRAGMA max_page_count = 131072');
   }
 }
 

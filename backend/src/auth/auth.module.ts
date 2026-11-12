@@ -15,7 +15,11 @@ import { AuthService } from './auth.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'dev-only-secret'),
+        secret: (() => {
+          const secret = config.get<string>('JWT_SECRET', 'dev-only-secret');
+          if (config.get('NODE_ENV') === 'production' && (secret.length < 32 || /change-this|replace-with/.test(secret))) throw new Error('生产环境 JWT_SECRET 至少 32 位且必须使用随机值');
+          return secret;
+        })(),
         signOptions: { expiresIn: '12h' },
       }),
     }),
