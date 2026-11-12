@@ -90,11 +90,12 @@ function Badge({ status }: { status: string }) {
     </span>
   );
 }
-function Empty({ children = "暂无记录" }: { children?: ReactNode }) {
+function Empty({ children = "暂无记录", action }: { children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="empty">
       <ClipboardList size={26} />
       <span>{children}</span>
+      {action}
     </div>
   );
 }
@@ -372,6 +373,7 @@ export function App() {
               inventory={inventory}
               open={openOrder}
               go={go}
+              create={user.role !== "WAREHOUSE" ? () => setModal("order") : undefined}
             />
           )}
           {tab === "orders" &&
@@ -646,18 +648,19 @@ function Dashboard({
   inventory,
   open,
   go,
+  create,
 }: {
   orders: Order[];
   inventory: Inventory;
   open: (id: string) => void;
   go: (t: Tab) => void;
+  create?: () => void;
 }) {
   return (
     <>
       <div className="workspace-banner">
         <div>
-          <span className="overline">WORKSHOP OPERATIONS</span>
-          <h2>维修业务 · 今日总览</h2>
+          <h2>维修业务概览</h2>
           <p>
             {
               orders.filter(
@@ -682,7 +685,7 @@ function Dashboard({
               全部工单 <ArrowRight size={14} />
             </button>
           </div>
-          <OrderTable orders={orders.slice(0, 6)} open={open} />
+          <OrderTable orders={orders.slice(0, 6)} open={open} emptyAction={create && <button onClick={create}><Plus size={15} />接车建单</button>} />
         </section>
         <section>
           <div className="section-head">
@@ -741,9 +744,11 @@ function Distribution({ orders }: { orders: Order[] }) {
 function OrderTable({
   orders,
   open,
+  emptyAction,
 }: {
   orders: Order[];
   open: (id: string) => void;
+  emptyAction?: ReactNode;
 }) {
   return orders.length ? (
     <div className="table-wrap">
@@ -784,7 +789,7 @@ function OrderTable({
       </table>
     </div>
   ) : (
-    <Empty>暂无维修工单</Empty>
+    <Empty action={emptyAction}>暂无维修工单</Empty>
   );
 }
 function Orders({
