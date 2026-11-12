@@ -9,6 +9,7 @@ data/
 .npm-cache/
 tmp/
 *.log
+*.tsbuildinfo
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
