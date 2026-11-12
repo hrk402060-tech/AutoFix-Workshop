@@ -56,6 +56,12 @@ async function run() {
   await call(`/work-orders/${order.id}`, outsider, undefined, 'GET', 403);
   assert.equal((await call('/work-orders', outsider)).length, 0);
   assert.equal((await call('/vehicles', outsider)).length, 0);
+  await call('/vehicles', outsider, { plateNumber: ' ', vin: ' ' }, 'POST', 400);
+  const vinOnly = await call('/vehicles', outsider, { vin: 'lvvdb11b0nd123456' }, 'POST', 201);
+  assert.equal(vinOnly.plateNumber, '');
+  assert.equal(vinOnly.vin, 'LVVDB11B0ND123456');
+  await call(`/vehicles/${vinOnly.id}`, owner, { plateNumber: '', vin: '' }, 'PUT', 400);
+  await call('/work-orders', outsider, { vehicleId: vinOnly.id, customerRequest: 'VIN 接车测试', itemTitles: ['车辆检查'] }, 'POST', 201);
   await call('/work-orders', outsider, { vehicleId: vehicle.id, customerRequest: '越权创建工单', itemTitles: ['检查'] }, 'POST', 403);
   const ownVehicle = await call('/vehicles', employee, { plateNumber: '沪A·员工接车' }, 'POST', 201);
   assert.ok((await call('/vehicles', employee)).some((v) => v.id === ownVehicle.id));

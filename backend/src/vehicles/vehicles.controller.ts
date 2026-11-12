@@ -1,33 +1,38 @@
 import { Body, Controller, Get, Post, Put, Query, Param, Req, UseGuards, ForbiddenException } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { VehiclesService } from './vehicles.service';
 import { AuthRequest, requireManager } from '../auth/actor';
 
 class VehicleDto {
+  @IsOptional()
   @IsString()
-  @MinLength(2)
   @MaxLength(20)
-  plateNumber!: string;
+  plateNumber?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(40)
   vin?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
   brand?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
   model?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   customerName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   customerPhone?: string;
 }
 
