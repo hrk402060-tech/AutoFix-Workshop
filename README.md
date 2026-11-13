@@ -8,8 +8,10 @@
 - NestJS + Fastify，单 Node.js 进程，同时提供静态页面与 `/api`
 - TypeORM + SQLite WAL；新版本通过迁移升级，`synchronize=false`
 - `data/` 数据库，`uploads/` 照片，均不进 Git
-- Ubuntu 24.04、2 vCPU / 1 GB RAM / 30 GB 磁盘，systemd，HTTP
+- Ubuntu 24.04、x86_64、2 个逻辑 CPU、1.6Gi 总内存、30G 根盘，systemd，HTTP
 - 不引入 PostgreSQL、Redis、MinIO 或多进程集群；单实例运行
+
+服务器资源基线（用户于 2026-11-13 提供的升级后命令输出）：`lscpu` 显示 x86_64、2 个逻辑 CPU，不据此推断物理核心数；`free -h` 显示总内存 1.6Gi、已用 434Mi、可用 1.2Gi、Swap 0；根盘为 ext4，总容量 30G、已用 3.6G、可用 25G、使用率 13%。这些数据是当时的资源快照，不代表压力测试结果。继续使用单 Node.js 实例、SQLite WAL 和本地照片存储。
 
 ## 当前 PC 功能
 
@@ -40,7 +42,7 @@ PC 页面参照需求 PDF 第 11 页的深色导航、紧凑表格、业务统�
 
 ## Ubuntu 24.04 部署
 
-先安装 Node.js 22、Git、SQLite CLI、编译依赖；内存紧张时在开发机或 CI 构建前端和后端，只在服务器安装生产依赖。不要在 1 GB 服务器上同时运行多个构建。
+先安装 Node.js 22、Git、SQLite CLI、编译依赖；前后端构建依次执行，避免并行构建争用内存；内存紧张时在开发机或 CI 构建前端和后端，只在服务器安装生产依赖。
 
 ```bash
 sudo apt update
