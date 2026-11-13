@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   Activity,
@@ -15,6 +15,8 @@ import {
   ClipboardList,
   Clock3,
   Download,
+  Eye,
+  EyeOff,
   FileBarChart,
   LayoutDashboard,
   LoaderCircle,
@@ -564,19 +566,23 @@ export function App() {
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const submitting = useRef(false);
   return (
-    <div className="login-page">
-      <header>
-        <Brand />
-      </header>
-      <div className="login-form">
-        <span className="overline">AUTOFIX WORKSHOP</span>
-        <h1>登录管理系统</h1>
-        <p>维修业务工作空间</p>
+    <main className="login-page">
+      <section className="login-panel" aria-labelledby="login-brand">
+        <header className="login-brand">
+          <div><CarFront size={30} aria-hidden="true" /><h1 id="login-brand">车匠云修</h1></div>
+          <p>汽车维修厂管理系统</p>
+        </header>
         <form
+          aria-label="登录"
+          aria-busy={busy}
           onSubmit={async (e) => {
             e.preventDefault();
+            if (submitting.current) return;
             const body = values(e);
+            submitting.current = true;
             setBusy(true);
             setError("");
             try {
@@ -587,35 +593,54 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
               localStorage.setItem("autofix_token", result.accessToken);
               onLogin(result.user);
             } catch (err) {
-              setError((err as Error).message);
+              setError(err instanceof TypeError
+                ? "网络连接失败，请检查网络后重试"
+                : err instanceof Error ? err.message : "登录失败，请稍后重试");
             } finally {
+              submitting.current = false;
               setBusy(false);
             }
           }}
         >
-          <Field label="用户名">
-            <input name="username" autoComplete="username" required autoFocus />
-          </Field>
-          <Field label="密码">
+          <div className="login-field">
+            <label htmlFor="login-username">账号</label>
+            <input id="login-username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false}
+              required autoFocus readOnly={busy} aria-describedby={error ? "login-error" : undefined} />
+          </div>
+          <div className="login-field">
+            <label htmlFor="login-password">密码</label>
+            <div className="login-password">
             <input
+              id="login-password"
               name="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               required
+              readOnly={busy}
+              aria-describedby={error ? "login-error" : undefined}
             />
-          </Field>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-          <Submit busy={busy}>
-            登录 <ArrowRight size={16} />
-          </Submit>
+              <button type="button" className="login-password-toggle" disabled={busy}
+                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                title={showPassword ? "隐藏密码" : "显示密码"}
+                aria-controls="login-password" aria-pressed={showPassword}
+                onClick={() => setShowPassword((visible) => !visible)}>
+                {showPassword ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}
+              </button>
+            </div>
+          </div>
+          <div className="login-feedback">
+            <p id="login-error" role="alert" aria-atomic="true">{error}</p>
+          </div>
+          <button className="primary login-submit" type="submit" disabled={busy} aria-label={busy ? "正在登录" : "登录"}>
+            <span className="login-submit-icon" aria-hidden="true">
+              {busy && <LoaderCircle className="spin" size={17} />}
+            </span>
+            <span role="status">{busy ? "正在登录" : "登录"}</span>
+            <span className="login-submit-icon" aria-hidden="true" />
+          </button>
         </form>
-      </div>
-      <footer>车匠云修 · 汽车维修厂管理系统</footer>
-    </div>
+      </section>
+    </main>
   );
 }
 
