@@ -1,4 +1,4 @@
-# 车匠云修 AutoFix Workshop
+# 铭匠云修 AutoFix Workshop
 
 单门店汽车维修业务系统，首期不超过 15 人。当前只开发与部署 PC 浏览器端；`mobile/` 保留早期 Flutter 草稿，暂停开发，未编译、未验证，不属于此次交付。
 

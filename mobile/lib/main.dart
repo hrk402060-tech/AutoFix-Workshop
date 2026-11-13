@@ -14,7 +14,7 @@ class AutoFixApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '车匠云修',
+      title: '铭匠云修',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -236,7 +236,7 @@ class VehiclePage extends StatelessWidget {
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
   @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: const [Text('我的', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)), SizedBox(height: 18), Card(child: ListTile(leading: CircleAvatar(backgroundColor: blue, child: Text('管')), title: Text('系统管理员'), subtitle: Text('老板 · 车匠云修'))), SizedBox(height: 16), Card(child: Column(children: [ListTile(leading: Icon(Icons.photo_camera_outlined), title: Text('维修照片设置'), trailing: Icon(Icons.chevron_right)), ListTile(leading: Icon(Icons.lock_outline), title: Text('账号与安全'), trailing: Icon(Icons.chevron_right))]))]);
+  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: const [Text('我的', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)), SizedBox(height: 18), Card(child: ListTile(leading: CircleAvatar(backgroundColor: blue, child: Text('管')), title: Text('系统管理员'), subtitle: Text('老板 · 铭匠云修'))), SizedBox(height: 16), Card(child: Column(children: [ListTile(leading: Icon(Icons.photo_camera_outlined), title: Text('维修照片设置'), trailing: Icon(Icons.chevron_right)), ListTile(leading: Icon(Icons.lock_outline), title: Text('账号与安全'), trailing: Icon(Icons.chevron_right))]))]);
 }
 
 class IntakeSheet extends StatelessWidget {
@@ -289,5 +289,5 @@ class Brand extends StatelessWidget {
   const Brand({this.light = false, super.key});
   final bool light;
   @override
-  Widget build(BuildContext context) => Row(children: [Container(width: 35, height: 35, decoration: BoxDecoration(color: light ? blue : const Color(0xff0c5f96), borderRadius: BorderRadius.circular(9)), child: const Icon(Icons.build, size: 19)), const SizedBox(width: 10), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('车匠云修', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)), Text('AutoFix Workshop', style: TextStyle(fontSize: 9, color: muted))])]);
+  Widget build(BuildContext context) => Row(children: [Container(width: 35, height: 35, decoration: BoxDecoration(color: light ? blue : const Color(0xff0c5f96), borderRadius: BorderRadius.circular(9)), child: const Icon(Icons.build, size: 19)), const SizedBox(width: 10), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('铭匠云修', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)), Text('AutoFix Workshop', style: TextStyle(fontSize: 9, color: muted))])]);
 }

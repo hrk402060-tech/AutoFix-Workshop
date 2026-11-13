@@ -84,7 +84,7 @@ function Brand() {
     <div className="brand">
       <CarFront size={31} />
       <div>
-        <strong>车匠云修</strong>
+        <strong>铭匠云修</strong>
         <small>汽车维修厂管理系统</small>
       </div>
     </div>
@@ -287,7 +287,7 @@ export function App() {
     return (
       <div className="boot">
         <LoaderCircle className="spin" />
-        正在连接车匠云修
+        正在连接铭匠云修
       </div>
     );
   if (!user) return <Login onLogin={setUser} />;
@@ -572,7 +572,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
     <main className="login-page">
       <section className="login-panel" aria-labelledby="login-brand">
         <header className="login-brand">
-          <div><CarFront size={30} aria-hidden="true" /><h1 id="login-brand">车匠云修</h1></div>
+          <div><CarFront size={30} aria-hidden="true" /><h1 id="login-brand">铭匠云修</h1></div>
           <p>汽车维修厂管理系统</p>
         </header>
         <form
