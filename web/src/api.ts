@@ -2,12 +2,12 @@ export type User = { id: string; username: string; name: string; role: string; i
 export type Vehicle = { id: string; plateNumber: string; vin?: string; brand?: string; model?: string; customerName?: string; customerPhone?: string };
 export type Order = { id: string; orderNo: string; vehicleId: string; status: string; customerRequest: string; vehicle?: Vehicle; createdAt: string; participants: { userId: string; user: User }[]; items: { id: string; title: string }[] };
 export type Photo = { id: string; stage: string; size: number; createdAt: string; authorId: string };
-export type Detail = Order & { records: { id: string; authorId: string; authorName: string; note: string; createdAt: string }[]; photos: Photo[]; logs: { id: string; action: string; actorId: string; actorName: string; createdAt: string; metadata?: { note?: string } }[] };
+export type Detail = Order & { acceptanceNote?: string; records: { id: string; authorId: string; authorName: string; note: string; createdAt: string }[]; photos: Photo[]; logs: { id: string; action: string; actorId: string; actorName: string; createdAt: string; metadata?: { note?: string } }[] };
 export type Part = { id: string; code: string; name: string; specification: string; unit: string; quantity: number };
-export type Material = { id: string; partId: string; workOrderId: string; applicantId: string; type: string; quantity: number; status: string; note: string; createdAt: string };
+export type Material = { id: string; partId: string; workOrderId: string; workOrderStatus: string; applicantId: string; type: string; quantity: number; status: string; note: string; createdAt: string };
 export type Inventory = { parts: Part[]; requests: Material[]; transactions: { id: string; partId: string; type: string; quantity: number; note: string; createdAt: string }[] };
 export const API = import.meta.env.VITE_API_BASE_URL || '/api';
-export const statusNames: Record<string, string> = { PENDING: '待处理', REPAIRING: '维修中', WAITING_ACCEPTANCE: '待验收', COMPLETED: '已完成', REWORKING: '返工中', CANCELLED: '已取消' };
+export const statusNames: Record<string, string> = { PENDING: '待处理', REPAIRING: '维修中', WAITING_ACCEPTANCE: '待验收', COMPLETED: '已完成', REWORKING: '返工中', CANCELLED: '已作废' };
 export const roleNames: Record<string, string> = { OWNER: '老板', MANAGER: '主管', EMPLOYEE: '员工', WAREHOUSE: '仓管' };
 export const stageNames: Record<string, string> = { VEHICLE: '接车照片', BEFORE: '维修前', DURING: '维修中', AFTER: '维修后' };
 export const date = (value: string) => new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`).toLocaleString('zh-CN', { hour12: false });

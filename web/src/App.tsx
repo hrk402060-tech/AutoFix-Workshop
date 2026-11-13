@@ -5,6 +5,7 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
+  Ban,
   Camera,
   CarFront,
   Check,
@@ -38,7 +39,7 @@ import {
   stageNames,
   statusNames,
 } from "./api";
-import type { Detail, Inventory, Order, Part, User, Vehicle } from "./api";
+import type { Detail, Inventory, Material, Order, Part, User, Vehicle } from "./api";
 
 const vehicleName = (vehicle?: Vehicle) =>
   vehicle?.plateNumber || vehicle?.vin || "车辆";
@@ -64,6 +65,8 @@ const manage = (u: User) => ["OWNER", "MANAGER"].includes(u.role);
 const stockManage = (u: User) => manage(u) || u.role === "WAREHOUSE";
 const editable = (o: Order, u: User) =>
   !["COMPLETED", "CANCELLED"].includes(o.status) && u.role !== "WAREHOUSE";
+const pendingMaterial = (request: Material) =>
+  request.status === "PENDING" && request.workOrderStatus !== "CANCELLED";
 const values = (event: FormEvent<HTMLFormElement>) =>
   Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<
     string,
@@ -150,12 +153,14 @@ function Modal({
 function Submit({
   busy,
   children = "保存",
+  danger = false,
 }: {
   busy: boolean;
   children?: ReactNode;
+  danger?: boolean;
 }) {
   return (
-    <button disabled={busy} className="primary" type="submit">
+    <button disabled={busy} className={danger ? "danger" : "primary"} type="submit">
       {busy && <LoaderCircle className="spin" size={15} />}
       {busy ? "正在保存" : children}
     </button>
@@ -215,14 +220,15 @@ export function App() {
     const token = localStorage.getItem("autofix_token");
     setLoading(true);
     try {
-      const [o, v, u, i] = await Promise.all([
+      const [o, v, u, i, cancelled] = await Promise.all([
         api<Order[]>("/work-orders"),
         api<Vehicle[]>("/vehicles"),
         api<User[]>("/users"),
         api<Inventory>("/inventory"),
+        manage(user) ? api<Order[]>("/work-orders?status=CANCELLED") : Promise.resolve([]),
       ]);
       if (localStorage.getItem("autofix_token") !== token) return;
-      setOrders(o);
+      setOrders([...o, ...cancelled]);
       setVehicles(v);
       setUsers(u);
       setInventory(i);
@@ -280,9 +286,7 @@ export function App() {
     );
   if (!user) return <Login onLogin={setUser} />;
   const visibleTabs = tabs.filter((t) => t.key !== "staff" || manage(user));
-  const pending = inventory.requests.filter(
-    (r) => r.status === "PENDING",
-  ).length;
+  const pending = inventory.requests.filter(pendingMaterial).length;
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -390,7 +394,7 @@ export function App() {
                 back={() => setSelected(null)}
               />
             ) : (
-              <Orders orders={orders} open={openOrder} />
+              <Orders orders={orders} user={user} open={openOrder} />
             ))}
           {tab === "vehicles" && (
             <Vehicles
@@ -614,7 +618,7 @@ function Metrics({ orders }: { orders: Order[] }) {
   const items = [
     {
       title: "全部工单",
-      count: orders.length,
+      count: orders.filter((o) => o.status !== "CANCELLED").length,
       icon: ClipboardList,
       color: "blue",
     },
@@ -688,7 +692,7 @@ function Dashboard({
               ).length
             }{" "}
             个工单进行中 ·{" "}
-            {inventory.requests.filter((r) => r.status === "PENDING").length}{" "}
+            {inventory.requests.filter(pendingMaterial).length}{" "}
             项物料申请待处理
           </p>
         </div>
@@ -705,7 +709,7 @@ function Dashboard({
               全部工单 <ArrowRight size={14} />
             </button>
           </div>
-          <OrderTable orders={orders.slice(0, 6)} open={open} emptyAction={create && <button onClick={create}><Plus size={15} />接车建单</button>} />
+          <OrderTable orders={orders.filter((o) => o.status !== "CANCELLED").slice(0, 6)} open={open} emptyAction={create && <button onClick={create}><Plus size={15} />接车建单</button>} />
         </section>
         <section>
           <div className="section-head">
@@ -814,16 +818,18 @@ function OrderTable({
 }
 function Orders({
   orders,
+  user,
   open,
 }: {
   orders: Order[];
+  user: User;
   open: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const filtered = orders.filter(
     (o) =>
-      (!status || o.status === status) &&
+      (status ? o.status === status : o.status !== "CANCELLED") &&
       `${o.orderNo} ${o.vehicle?.plateNumber} ${o.vehicle?.vin} ${o.customerRequest}`
         .toLowerCase()
         .includes(q.toLowerCase()),
@@ -847,7 +853,7 @@ function Orders({
           onChange={(e) => setStatus(e.target.value)}
         >
           <option value="">全部状态</option>
-          {Object.entries(statusNames).map(([k, v]) => (
+          {Object.entries(statusNames).filter(([k]) => k !== "CANCELLED" || manage(user)).map(([k, v]) => (
             <option key={k} value={k}>
               {v}
             </option>
@@ -1216,6 +1222,9 @@ function OrderDetail({
             电话 {detail.vehicle?.customerPhone || "未填写"}
           </p>
           <p>创建时间 {date(detail.createdAt)}</p>
+          {detail.status === "CANCELLED" && (
+            <p className="danger-text">作废原因：{detail.acceptanceNote || "历史工单未记录原因"}</p>
+          )}
         </div>
         <div className="detail-actions">
           {allowed && detail.status === "PENDING" && (
@@ -1265,8 +1274,11 @@ function OrderDetail({
               <button onClick={() => setAction("REWORKING")}>退回返工</button>
             </>
           )}
-          {allowed && manage(user) && (
-            <button onClick={() => setAction("CANCELLED")}>取消工单</button>
+          {detail.status !== "CANCELLED" && manage(user) && (
+            <button disabled={busy} className="danger-outline" onClick={() => setAction("CANCELLED")}>
+              <Ban size={15} />
+              作废工单
+            </button>
           )}
         </div>
       </section>
@@ -1461,7 +1473,7 @@ function OrderDetail({
                 ? "物料申请"
                 : action === "REWORKING"
                   ? "退回返工"
-                  : "取消工单"
+                  : "作废工单"
           }
           close={() => !busy && setAction("")}
         >
@@ -1525,12 +1537,13 @@ function OrderDetail({
                 );
               }}
             >
-              <Field label={action === "REWORKING" ? "返工原因" : "取消原因"}>
+              {action === "CANCELLED" && <p>确认作废工单 {detail.orderNo}？作废后将保留历史资料，并禁止继续修改。</p>}
+              <Field label={action === "REWORKING" ? "返工原因" : "作废原因"}>
                 <textarea name="note" required minLength={2} maxLength={2000} />
               </Field>
               <div className="form-footer">
-                <Submit busy={busy}>
-                  确认{action === "REWORKING" ? "返工" : "取消"}
+                <Submit busy={busy} danger={action === "CANCELLED"}>
+                  确认{action === "REWORKING" ? "返工" : "作废"}
                 </Submit>
               </div>
             </form>
@@ -1772,7 +1785,7 @@ function Warehouse({
             ["parts", "零件库存"],
             [
               "requests",
-              `物料申请 (${inventory.requests.filter((r) => r.status === "PENDING").length})`,
+              `物料申请 (${inventory.requests.filter(pendingMaterial).length})`,
             ],
             ...(stockManage(user) ? [["transactions", "出入库流水"]] : []),
           ].map(([k, v]) => (
@@ -1883,9 +1896,10 @@ function Warehouse({
                   <td>{r.note}</td>
                   <td>
                     <Badge status={r.status} />
+                    {r.workOrderStatus === "CANCELLED" && <small className="danger-text">工单已作废</small>}
                   </td>
                   <td>
-                    {r.status === "PENDING" && stockManage(user) && (
+                    {pendingMaterial(r) && stockManage(user) && (
                       <div className="row-actions">
                         <button
                           disabled={busy}
@@ -2159,7 +2173,7 @@ function Reports({ orders, parts }: { orders: Order[]; parts: Part[] }) {
               累计工单<strong>{orders.length}</strong>
             </span>
             <span>
-              取消工单
+              已作废工单
               <strong>
                 {orders.filter((o) => o.status === "CANCELLED").length}
               </strong>

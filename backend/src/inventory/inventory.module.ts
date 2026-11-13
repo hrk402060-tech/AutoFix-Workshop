@@ -1,11 +1,12 @@
 import { BadRequestException, Body, Controller, Get, Module, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ArrayNotEmpty, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { Actor, AuthRequest, audit, isStockManager, requireStockManager } from '../auth/actor';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MaterialRequest, Part, StockTransaction } from '../database/business.entity';
 import { WriteService } from '../database/write.service';
+import { WorkOrder } from '../database/entities/work-order.entity';
 import { WorkOrdersModule } from '../work-orders/work-orders.module';
 import { WorkOrdersService } from '../work-orders/work-orders.service';
 
@@ -34,8 +35,11 @@ class InventoryService {
   async list(actor: Actor) {
     const parts = await this.db.manager.find(Part, { order: { code: 'ASC' } });
     const requests = await this.db.manager.find(MaterialRequest, { where: isStockManager(actor) ? {} : { applicantId: actor.id }, order: { createdAt: 'DESC' } });
+    const orderIds = [...new Set(requests.map((request) => request.workOrderId))];
+    const orders = orderIds.length ? await this.db.manager.find(WorkOrder, { where: { id: In(orderIds) }, select: ['id', 'status'] }) : [];
+    const statuses = new Map(orders.map((order) => [order.id, order.status]));
     const transactions = isStockManager(actor) ? await this.db.manager.find(StockTransaction, { order: { createdAt: 'DESC' }, take: 200 }) : [];
-    return { parts, requests, transactions };
+    return { parts, requests: requests.map((request) => ({ ...request, workOrderStatus: statuses.get(request.workOrderId) })), transactions };
   }
   async part(actor: Actor, dto: PartDto) {
     requireStockManager(actor);
@@ -71,10 +75,11 @@ class InventoryService {
     return this.writes.run(async (m) => {
       const request = await m.findOneBy(MaterialRequest, { id });
       if (!request) throw new BadRequestException('申请不存在');
+      const order = await this.orders.accessible(actor, request.workOrderId, m);
+      if (order.status === 'CANCELLED') throw new BadRequestException('工单已作废，不可审批物料申请');
       if (request.status !== 'PENDING') throw new BadRequestException('申请已处理，请刷新');
       const part = await m.findOneByOrFail(Part, { id: request.partId });
       if (status === 'APPROVED') {
-        const order = await this.orders.accessible(actor, request.workOrderId, m);
         if (['COMPLETED', 'CANCELLED'].includes(order.status)) throw new BadRequestException('工单已结束，不能批准物料变动');
         if (request.type === 'OUT' && part.quantity < request.quantity) throw new BadRequestException('库存不足，无法出库');
         if (request.type === 'RETURN') {

@@ -60,6 +60,10 @@ button:disabled, .disabled { opacity: .55; cursor: wait; }
 button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 button.primary, .upload-button { border-color: var(--primary); background: var(--primary); color: var(--on-dark); }
 button.primary:hover, .upload-button:hover { background: var(--primary-dark); }
+button.danger { border-color: var(--accent-red); background: var(--accent-red); color: var(--on-dark); }
+button.danger:hover { border-color: var(--error-text); background: var(--error-text); }
+button.danger-outline { border-color: var(--accent-red); color: var(--error-text); }
+button.danger-outline:hover { background: var(--red-soft); }
 button.icon { border: 0; background: transparent; width: 34px; height: 34px; padding: 6px; flex-shrink: 0; }
 button.text-button { color: var(--primary); border: 0; background: transparent; padding: 4px 0; min-height: 30px; white-space: nowrap; }
 .shell { min-height: 100vh; display: flex; }
@@ -128,6 +132,7 @@ tbody tr:hover { background: var(--primary-faint); }
 .badge.waiting_acceptance { background: var(--purple-soft); color: var(--status-review-text); }
 .badge.completed, .badge.approved { background: var(--green-soft); color: var(--status-done-text); }
 .badge.reworking, .badge.rejected { background: var(--red-soft); color: var(--status-alert-text); }
+.badge.cancelled { background: var(--red-soft); color: var(--status-alert-text); }
 .distribution { padding: 8px 0 17px; }
 .distribution > div { margin-bottom: 16px; }
 .distribution > div > div:first-child { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 7px; }

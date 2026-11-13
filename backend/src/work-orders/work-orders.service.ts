@@ -34,17 +34,20 @@ export class WorkOrdersService {
   async editable(actor: Actor, id: string, manager = this.db.manager) {
     const order = await this.accessible(actor, id, manager);
     if (actor.role === UserRole.WAREHOUSE) throw new ForbiddenException('仓管不能修改维修工单');
-    if ([S.COMPLETED, S.CANCELLED].includes(order.status)) throw new BadRequestException('已完成或已取消的工单不可修改');
+    if ([S.COMPLETED, S.CANCELLED].includes(order.status)) throw new BadRequestException('已完成或已作废的工单不可修改');
     return order;
   }
 
-  async list(actor: Actor) {
+  async list(actor: Actor, status?: S) {
+    if (status === S.CANCELLED) requireManager(actor);
     const query = this.db.getRepository(WorkOrder).createQueryBuilder('o')
       .leftJoinAndSelect('o.items', 'item')
       .leftJoinAndSelect('o.participants', 'p')
       .leftJoinAndSelect('p.user', 'u')
       .leftJoinAndMapOne('o.vehicle', Vehicle, 'v', 'v.id = o.vehicleId')
       .orderBy('o.createdAt', 'DESC');
+    if (status) query.andWhere('o.status = :status', { status });
+    else query.andWhere('o.status != :cancelled', { cancelled: S.CANCELLED });
     if (!isStockManager(actor)) {
       query.andWhere('(o.createdById = :id OR EXISTS(SELECT 1 FROM work_order_participants member WHERE member.workOrderId = o.id AND member.userId = :id))', { id: actor.id });
     }
@@ -128,21 +131,33 @@ export class WorkOrdersService {
   }
 
   async updateStatus(actor: Actor, id: string, status: S, note?: string) {
+    if (status === S.CANCELLED) requireManager(actor);
     await this.writes.run(async (m) => {
-      const order = await this.editable(actor, id, m);
-      const transitions: Partial<Record<S, S[]>> = {
-        [S.PENDING]: [S.REPAIRING, S.CANCELLED],
-        [S.REPAIRING]: [S.WAITING_ACCEPTANCE, S.CANCELLED],
-        [S.REWORKING]: [S.WAITING_ACCEPTANCE, S.CANCELLED],
-        [S.WAITING_ACCEPTANCE]: [S.COMPLETED, S.REWORKING, S.CANCELLED],
-      };
-      if (!transitions[order.status]?.includes(status)) throw new BadRequestException('当前状态不允许此操作');
-      if ([S.COMPLETED, S.REWORKING, S.CANCELLED].includes(status)) requireManager(actor);
-      if ([S.REWORKING, S.CANCELLED].includes(status) && !note?.trim()) throw new BadRequestException('请填写返工或取消原因');
-      if (status === S.WAITING_ACCEPTANCE && !await m.countBy(RepairRecord, { workOrderId: id })) throw new BadRequestException('请先填写维修记录');
-      if ([S.COMPLETED, S.CANCELLED].includes(status) && await m.countBy(MaterialRequest, { workOrderId: id, status: 'PENDING' })) throw new BadRequestException('请先处理该工单的待审批物料申请');
-      await m.update(WorkOrder, id, { status, ...(note ? { acceptanceNote: note } : {}) });
-      await audit(m, actor, `STATUS_${status}`, 'work_order', id, { from: order.status, note });
+      const order = status === S.CANCELLED
+        ? await this.accessible(actor, id, m)
+        : await this.editable(actor, id, m);
+      const reason = note?.trim();
+      if (status === S.CANCELLED) {
+        if (order.status === S.CANCELLED) throw new BadRequestException('工单已作废，不可重复操作');
+        if (!reason || [...reason].length < 2) throw new BadRequestException('作废原因至少填写 2 个字符');
+        await m.save(RepairRecord, m.create(RepairRecord, {
+          workOrderId: id, authorId: actor.id, note: `工单作废：${reason}`,
+        }));
+      } else {
+        const transitions: Partial<Record<S, S[]>> = {
+          [S.PENDING]: [S.REPAIRING],
+          [S.REPAIRING]: [S.WAITING_ACCEPTANCE],
+          [S.REWORKING]: [S.WAITING_ACCEPTANCE],
+          [S.WAITING_ACCEPTANCE]: [S.COMPLETED, S.REWORKING],
+        };
+        if (!transitions[order.status]?.includes(status)) throw new BadRequestException('当前状态不允许此操作');
+        if ([S.COMPLETED, S.REWORKING].includes(status)) requireManager(actor);
+        if (status === S.REWORKING && !reason) throw new BadRequestException('请填写返工原因');
+        if (status === S.WAITING_ACCEPTANCE && !await m.countBy(RepairRecord, { workOrderId: id })) throw new BadRequestException('请先填写维修记录');
+        if (status === S.COMPLETED && await m.countBy(MaterialRequest, { workOrderId: id, status: 'PENDING' })) throw new BadRequestException('请先处理该工单的待审批物料申请');
+      }
+      await m.update(WorkOrder, id, { status, ...(reason ? { acceptanceNote: reason } : {}) });
+      await audit(m, actor, `STATUS_${status}`, 'work_order', id, { from: order.status, note: reason });
     });
     return this.getOne(actor, id);
   }

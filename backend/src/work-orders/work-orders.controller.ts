@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ArrayMinSize, ArrayMaxSize, IsArray, IsEnum, IsOptional, IsString, MaxLength, MinLength, IsUUID } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthRequest } from '../auth/actor';
@@ -43,6 +43,9 @@ class AssignDto {
 class RecordDto {
   @IsString() @MinLength(2) @MaxLength(4000) note!: string;
 }
+class ListWorkOrdersDto {
+  @IsOptional() @IsEnum(WorkOrderStatus) status?: WorkOrderStatus;
+}
 
 @Controller('work-orders')
 @UseGuards(JwtAuthGuard)
@@ -50,8 +53,8 @@ export class WorkOrdersController {
   constructor(private readonly orders: WorkOrdersService) {}
 
   @Get()
-  list(@Req() request: AuthRequest) {
-    return this.orders.list(request.user);
+  list(@Req() request: AuthRequest, @Query() query: ListWorkOrdersDto) {
+    return this.orders.list(request.user, query.status);
   }
 
   @Get(':id')
