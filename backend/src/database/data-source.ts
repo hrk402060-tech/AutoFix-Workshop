@@ -9,11 +9,12 @@ import { WorkOrder } from './entities/work-order.entity';
 import { InitialSchema1710000000000 } from './migrations/1710000000000-initial-schema';
 import { PcWorkflows1794456000000 } from './migrations/1794456000000-pc-workflows';
 import { businessEntities } from './business.entity';
+import { PartLifecycle1794535200000 } from './migrations/1794535200000-part-lifecycle';
 
 export default new DataSource({
   type: 'sqlite',
   database: process.env.DATABASE_PATH || './data/autofix.sqlite',
   entities: [AuditLog, User, Vehicle, WorkOrder, WorkOrderItem, WorkOrderParticipant, ...businessEntities],
-  migrations: [InitialSchema1710000000000, PcWorkflows1794456000000],
+  migrations: [InitialSchema1710000000000, PcWorkflows1794456000000, PartLifecycle1794535200000],
 });
 

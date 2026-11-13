@@ -3,9 +3,9 @@ export type Vehicle = { id: string; plateNumber: string; vin?: string; brand?: s
 export type Order = { id: string; orderNo: string; vehicleId: string; status: string; customerRequest: string; vehicle?: Vehicle; createdAt: string; participants: { userId: string; user: User }[]; items: { id: string; title: string }[] };
 export type Photo = { id: string; stage: string; size: number; createdAt: string; authorId: string };
 export type Detail = Order & { acceptanceNote?: string; records: { id: string; authorId: string; authorName: string; note: string; createdAt: string }[]; photos: Photo[]; logs: { id: string; action: string; actorId: string; actorName: string; createdAt: string; metadata?: { note?: string } }[] };
-export type Part = { id: string; code: string; name: string; specification: string; unit: string; quantity: number };
-export type Material = { id: string; partId: string; workOrderId: string; workOrderStatus: string; applicantId: string; type: string; quantity: number; status: string; note: string; createdAt: string };
-export type Inventory = { parts: Part[]; requests: Material[]; transactions: { id: string; partId: string; type: string; quantity: number; note: string; createdAt: string }[] };
+export type Part = { id: string; code: string; name: string; specification: string; unit: string; quantity: number; isActive: boolean; canDelete?: boolean; deleteBlockedReason?: string; hasPendingRequests?: boolean };
+export type Material = { id: string; partId: string; partName?: string; partCode?: string; partActive?: boolean; workOrderId: string; workOrderStatus: string; applicantId: string; type: string; quantity: number; status: string; note: string; createdAt: string };
+export type Inventory = { parts: Part[]; requests: Material[]; transactions: { id: string; partId: string; partName?: string; partCode?: string; actorName: string; type: string; quantity: number; note: string; createdAt: string }[] };
 export const API = import.meta.env.VITE_API_BASE_URL || '/api';
 export const statusNames: Record<string, string> = { PENDING: '待处理', REPAIRING: '维修中', WAITING_ACCEPTANCE: '待验收', COMPLETED: '已完成', REWORKING: '返工中', CANCELLED: '已作废' };
 export const roleNames: Record<string, string> = { OWNER: '老板', MANAGER: '主管', EMPLOYEE: '员工', WAREHOUSE: '仓管' };
@@ -24,6 +24,13 @@ export async function api<T>(path: string, body?: unknown, method = 'GET'): Prom
 }
 export const post = <T,>(path: string, body: unknown) => api<T>(path, body, 'POST');
 export const patch = <T,>(path: string, body: unknown) => api<T>(path, body, 'PATCH');
+export function newOperationId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export async function compressPhoto(file: File): Promise<Blob> {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 15 * 1024 ** 2) throw new Error('请选择不超过 15 MB 的 JPEG、PNG 或 WebP 图片');

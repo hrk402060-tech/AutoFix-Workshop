@@ -8,7 +8,7 @@
     "start:dev": "nest start --watch",
     "migration:run": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "migration:revert": "typeorm-ts-node-commonjs -d src/database/data-source.ts migration:revert",
-    "test:integration": "npm run build && node test/migration.cjs && node test/pc-workflows.cjs && node test/void-orders.cjs"
+    "test:integration": "npm run build && node test/migration.cjs && node test/pc-workflows.cjs && node test/void-orders.cjs && node test/part-lifecycle.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.9",

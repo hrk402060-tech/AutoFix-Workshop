@@ -2,7 +2,22 @@
   --page-bg: #f4f7fa;
   --surface: #ffffff;
   --surface-muted: #eef3f7;
-  --sidebar: #102a43;
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e4e7ec;
+  --sidebar-brand-title: #1d2939;
+  --sidebar-brand-subtitle: #667085;
+  --sidebar-brand-icon: #2878c8;
+  --sidebar-text: #475467;
+  --sidebar-icon: #667085;
+  --sidebar-active-bg: #eaf2fc;
+  --sidebar-active-text: #245fa6;
+  --sidebar-active-bar: #2878c8;
+  --sidebar-hover-bg: #f2f4f7;
+  --sidebar-hover-text: #1d2939;
+  --sidebar-focus: #2878c8;
+  --login-header: #102a43;
+  --login-brand-icon: #72c6d9;
+  --login-brand-subtitle: #9eb4c6;
   --topbar: #ffffff;
   --primary: #2878c8;
   --primary-dark: #1e6aae;
@@ -18,9 +33,6 @@
   --border-soft: #e6edf3;
   --focus: #b9d8f4;
   --on-dark: #ffffff;
-  --on-dark-muted: #b7c9d8;
-  --on-dark-faint: #9eb4c6;
-  --brand-accent: #72c6d9;
   --dark-text: #19324a;
   --dark-subtle: #61758a;
   --status-pending-text: #9b6a12;
@@ -64,20 +76,25 @@ button.danger { border-color: var(--accent-red); background: var(--accent-red); 
 button.danger:hover { border-color: var(--error-text); background: var(--error-text); }
 button.danger-outline { border-color: var(--accent-red); color: var(--error-text); }
 button.danger-outline:hover { background: var(--red-soft); }
+.delete-confirm { display: flex; align-items: center; gap: 8px; margin: 16px 0; }
+.delete-confirm input { width: auto; }
 button.icon { border: 0; background: transparent; width: 34px; height: 34px; padding: 6px; flex-shrink: 0; }
 button.text-button { color: var(--primary); border: 0; background: transparent; padding: 4px 0; min-height: 30px; white-space: nowrap; }
 .shell { min-height: 100vh; display: flex; }
-.sidebar { position: fixed; inset: 0 auto 0 0; width: 210px; background: var(--sidebar); color: var(--on-dark-muted); display: flex; flex-direction: column; z-index: 20; }
-.brand { display: flex; align-items: center; gap: 11px; color: var(--brand-accent); padding: 21px 19px; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width: 210px; background: var(--sidebar-bg); color: var(--sidebar-text); border-right: 1px solid var(--sidebar-border); display: flex; flex-direction: column; z-index: 20; }
+.brand { display: flex; align-items: center; gap: 11px; color: var(--sidebar-brand-icon); padding: 21px 19px; }
 .brand svg { flex-shrink: 0; }
-.brand strong { display: block; color: var(--on-dark); font-size: 21px; }
-.brand small { display: block; margin-top: 4px; color: var(--on-dark-faint); font-size: 10px; }
+.brand strong { display: block; color: var(--sidebar-brand-title); font-size: 21px; }
+.brand small { display: block; margin-top: 4px; color: var(--sidebar-brand-subtitle); font-size: 10px; }
 .sidebar nav { padding: 15px 9px; }
-.sidebar nav button { justify-content: start; color: var(--on-dark-muted); width: 100%; padding: 11px 13px; min-height: 43px; background: transparent; border: 0; margin-bottom: 4px; }
-.sidebar nav button.active { background: var(--primary-dark); color: var(--on-dark); box-shadow: inset 3px 0 var(--brand-accent); }
-.sidebar nav button:hover { color: var(--on-dark); background: var(--primary-hover); }
-.sidebar nav button.active:hover { background: var(--primary-dark); }
-.sidebar nav b { font-weight: 500; font-size: 10px; margin-left: auto; border-radius: 4px; background: var(--accent-amber); color: var(--sidebar); padding: 1px 5px; }
+.sidebar nav button { justify-content: start; color: var(--sidebar-text); width: 100%; padding: 11px 13px; min-height: 43px; background: transparent; border: 0; border-radius: 6px; margin-bottom: 4px; }
+.sidebar nav button > svg { color: var(--sidebar-icon); }
+.sidebar nav button:hover { color: var(--sidebar-hover-text); background: var(--sidebar-hover-bg); }
+.sidebar nav button:hover > svg { color: var(--sidebar-hover-text); }
+.sidebar nav button.active, .sidebar nav button.active:hover { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); box-shadow: inset 3px 0 var(--sidebar-active-bar); }
+.sidebar nav button.active > svg, .sidebar nav button.active:hover > svg { color: var(--sidebar-active-text); }
+.sidebar nav button:focus-visible { outline: 2px solid var(--sidebar-focus); outline-offset: 1px; }
+.sidebar nav b { font-weight: 500; font-size: 10px; margin-left: auto; border-radius: 4px; background: var(--accent-amber); color: var(--sidebar-brand-title); padding: 1px 5px; }
 .workspace { margin-left: 210px; width: calc(100% - 210px); min-width: 0; }
 .topbar { height: 65px; background: var(--topbar); color: var(--dark-text); display: flex; justify-content: space-between; align-items: center; padding: 0 26px; border-bottom: 1px solid var(--border); }
 .topbar-brand { font-size: 16px; font-weight: 600; }
@@ -228,8 +245,10 @@ figcaption { display: flex; justify-content: space-between; font-size: 10px; col
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .login-page { min-height: 100dvh; display: flex; flex-direction: column; background: var(--page-bg); }
-.login-page > header { background: var(--sidebar); }
-.login-page > header .brand { padding: 18px 35px; }
+.login-page > header { background: var(--login-header); }
+.login-page > header .brand { padding: 18px 35px; color: var(--login-brand-icon); }
+.login-page > header .brand strong { color: var(--on-dark); }
+.login-page > header .brand small { color: var(--login-brand-subtitle); }
 .login-form { width: min(380px, calc(100% - 40px)); margin: auto; padding: 60px 0; }
 .login-form h1 { font-size: 27px; margin: 12px 0 5px; }
 .login-form > p { color: var(--text-muted); font-size: 12px; margin-bottom: 30px; }

@@ -55,6 +55,7 @@ export class StockTransaction {
   @Column('integer') quantity!: number;
   @Column('text') note!: string;
   @Column({ nullable: true, unique: true }) requestId?: string;
+  @Column({ nullable: true, type: 'varchar' }) operationId?: string;
   @CreateDateColumn() createdAt!: Date;
 }
 

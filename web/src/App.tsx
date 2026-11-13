@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 import {
   Activity,
   ArrowDownToLine,
+  ArrowUpFromLine,
   ArrowLeft,
   ArrowRight,
   Ban,
@@ -20,10 +21,12 @@ import {
   Package,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
   Users,
+  Trash2,
   Wrench,
   X,
 } from "lucide-react";
@@ -34,6 +37,7 @@ import {
   compressPhoto,
   date,
   patch,
+  newOperationId,
   post,
   roleNames,
   stageNames,
@@ -224,7 +228,7 @@ export function App() {
         api<Order[]>("/work-orders"),
         api<Vehicle[]>("/vehicles"),
         api<User[]>("/users"),
-        api<Inventory>("/inventory"),
+        api<Inventory>(manage(user) ? "/inventory?parts=all" : "/inventory"),
         manage(user) ? api<Order[]>("/work-orders?status=CANCELLED") : Promise.resolve([]),
       ]);
       if (localStorage.getItem("autofix_token") !== token) return;
@@ -433,6 +437,7 @@ export function App() {
               busy={busy}
               modal={setModal}
               mutate={mutate}
+              operationError={error}
             />
           )}
           {tab === "reports" && (
@@ -1759,6 +1764,7 @@ function Warehouse({
   busy,
   modal,
   mutate,
+  operationError,
 }: {
   inventory: Inventory;
   orders: Order[];
@@ -1767,15 +1773,34 @@ function Warehouse({
   busy: boolean;
   modal: (m: string) => void;
   mutate: Mutate;
+  operationError: string;
 }) {
   const [q, setQ] = useState("");
   const [view, setView] = useState("parts");
+  const [partFilter, setPartFilter] = useState("active");
+  const [partAction, setPartAction] = useState<{ type: string; part?: Part } | null>(null);
+  const [deleteReview, setDeleteReview] = useState("");
+  const [partFormError, setPartFormError] = useState("");
+  const filteredParts = inventory.parts.filter((part) =>
+    (partFilter === "all" || part.isActive === (partFilter === "active")) &&
+    `${part.code} ${part.name} ${part.specification}`.toLowerCase().includes(q.toLowerCase()),
+  );
+  async function partChange(work: () => Promise<unknown>) {
+    if (await mutate(work)) { setPartAction(null); setDeleteReview(""); }
+  }
+  function openPartAction(type: string, part?: Part) {
+    setPartFormError("");
+    setDeleteReview("");
+    setPartAction({ type, part });
+  }
   const partName = (id: string) =>
     inventory.parts.find((p) => p.id === id)?.name || id;
   const types: Record<string, string> = {
     IN: "采购入库",
     OUT: "领料出库",
     RETURN: "退料入库",
+    PURCHASE_RETURN: "采购退货出库",
+    SCRAP: "报废出库",
   };
   return (
     <>
@@ -1808,11 +1833,16 @@ function Warehouse({
               <ArrowDownToLine size={15} />
               采购入库
             </button>
+            <button onClick={() => openPartAction("outgoing")}>
+              <ArrowUpFromLine size={15} />
+              库存出库
+            </button>
           </div>
         )}
       </div>
       {view === "parts" && (
         <>
+          <div className="toolbar">
           <div className="search">
             <Search size={16} />
             <input
@@ -1821,6 +1851,15 @@ function Warehouse({
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
+          </div>
+          {manage(user) && (
+            <select aria-label="零件启用状态筛选" value={partFilter} onChange={(event) => setPartFilter(event.target.value)}>
+              <option value="active">启用零件</option>
+              <option value="inactive">停用零件</option>
+              <option value="all">全部零件</option>
+            </select>
+          )}
+          <span>共 {filteredParts.length} 种</span>
           </div>
           <div className="table-wrap">
             <table>
@@ -1831,14 +1870,12 @@ function Warehouse({
                   <th>规格</th>
                   <th>库存数量</th>
                   <th>单位</th>
+                  <th>状态</th>
+                  {manage(user) && <th>管理操作</th>}
                 </tr>
               </thead>
               <tbody>
-                {inventory.parts
-                  .filter((p) =>
-                    `${p.code} ${p.name} ${p.specification}`.includes(q),
-                  )
-                  .map((p) => (
+                {filteredParts.map((p) => (
                     <tr key={p.id}>
                       <td>{p.code}</td>
                       <td>
@@ -1853,11 +1890,31 @@ function Warehouse({
                         </strong>
                       </td>
                       <td>{p.unit}</td>
+                      <td><span className={`badge ${p.isActive ? "approved" : "cancelled"}`}>{p.isActive ? "启用" : "停用"}</span></td>
+                      {manage(user) && (
+                        <td>
+                          <div className="row-actions">
+                            <button className="text-button" disabled={busy || (p.isActive && (p.quantity !== 0 || p.hasPendingRequests))}
+                              title={p.isActive && p.hasPendingRequests ? "请先处理待审批申请" : p.isActive && p.quantity !== 0 ? "请先处理库存至零" : p.isActive ? "停用零件" : "恢复零件"}
+                              onClick={() => openPartAction("active", p)}>
+                              {p.isActive ? <Ban size={14} /> : <RotateCcw size={14} />}
+                              {p.isActive ? "停用" : "恢复"}
+                            </button>
+                            <button className="icon danger-text" disabled={busy || !p.canDelete}
+                              title={p.canDelete ? "删除误建零件" : p.deleteBlockedReason}
+                              aria-label={`删除误建零件 ${p.code}`}
+                              onClick={() => openPartAction("delete", p)}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                          {!p.canDelete && <small>{p.deleteBlockedReason}</small>}
+                        </td>
+                      )}
                     </tr>
                   ))}
               </tbody>
             </table>
-            {!inventory.parts.length && <Empty>暂无零件档案</Empty>}
+            {!filteredParts.length && <Empty>暂无符合条件的零件</Empty>}
           </div>
         </>
       )}
@@ -1889,7 +1946,7 @@ function Warehouse({
                         "维修人员"}
                     </small>
                   </td>
-                  <td>{partName(r.partId)}</td>
+                  <td>{r.partName || partName(r.partId)}<small>{r.partCode}</small></td>
                   <td>
                     {types[r.type]} · {r.quantity}
                   </td>
@@ -1897,9 +1954,10 @@ function Warehouse({
                   <td>
                     <Badge status={r.status} />
                     {r.workOrderStatus === "CANCELLED" && <small className="danger-text">工单已作废</small>}
+                    {r.partActive === false && <small className="danger-text">零件已停用</small>}
                   </td>
                   <td>
-                    {pendingMaterial(r) && stockManage(user) && (
+                    {pendingMaterial(r) && r.partActive !== false && stockManage(user) && (
                       <div className="row-actions">
                         <button
                           disabled={busy}
@@ -1947,19 +2005,21 @@ function Warehouse({
                 <th>单据类型</th>
                 <th>数量</th>
                 <th>备注</th>
+                <th>操作人</th>
               </tr>
             </thead>
             <tbody>
               {inventory.transactions.map((t) => (
                 <tr key={t.id}>
                   <td>{date(t.createdAt)}</td>
-                  <td>{partName(t.partId)}</td>
+                  <td>{t.partName || partName(t.partId)}<small>{t.partCode}</small></td>
                   <td>{types[t.type]}</td>
                   <td>
-                    {t.type === "OUT" ? "−" : "+"}
+                    {["OUT", "PURCHASE_RETURN", "SCRAP"].includes(t.type) ? "−" : "+"}
                     {t.quantity}
                   </td>
                   <td>{t.note}</td>
+                  <td>{t.actorName}</td>
                 </tr>
               ))}
             </tbody>
@@ -1967,7 +2027,79 @@ function Warehouse({
           {!inventory.transactions.length && <Empty>暂无出入库流水</Empty>}
         </div>
       )}
+      {partAction && (
+        <Modal title={partAction.type === "outgoing" ? "库存出库" : partAction.type === "delete" ? "删除误建零件" : partAction.part?.isActive ? "停用零件" : "恢复零件"}
+          close={() => { if (!busy) { setPartAction(null); setDeleteReview(""); } }}>
+          {operationError && <p className="error" role="alert">{operationError}</p>}
+          {partFormError && <p className="error" role="alert">{partFormError}</p>}
+          {partAction.type === "outgoing" ? (
+            <StockOutForm parts={inventory.parts} busy={busy} save={(body) => partChange(() => post("/inventory/outgoing", body))} />
+          ) : partAction.part && (
+            partAction.type === "delete" && deleteReview ? (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const body = values(event);
+                void partChange(() => api(`/inventory/parts/${partAction.part!.id}`, {
+                  note: deleteReview, confirmCode: body.confirmCode, confirmed: body.confirmed === "on",
+                }, "DELETE"));
+              }}>
+                <p className="danger-text">永久删除 {partAction.part.code} · {partAction.part.name}？仅限库存为零、无业务引用的误建零件，此操作不可恢复。</p>
+                <Field label="输入零件编号确认"><input name="confirmCode" required autoComplete="off" maxLength={50} /></Field>
+                <label className="delete-confirm"><input name="confirmed" type="checkbox" required />确认这是误建零件，允许永久删除</label>
+                <div className="form-footer"><button type="button" disabled={busy} onClick={() => setDeleteReview("")}>返回核对</button><Submit busy={busy} danger>永久删除误建零件</Submit></div>
+              </form>
+            ) : (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const note = values(event).note.trim();
+                if ([...note].length < 2) { setPartFormError("原因至少填写 2 个字符"); return; }
+                setPartFormError("");
+                if (partAction.type === "delete") { if ([...note].length >= 2) setDeleteReview(note); return; }
+                void partChange(() => patch(`/inventory/parts/${partAction.part!.id}/active`, { isActive: !partAction.part!.isActive, note }));
+              }}>
+                <p>{partAction.part.code} · {partAction.part.name}（库存 {partAction.part.quantity} {partAction.part.unit}）</p>
+                {partAction.type === "delete" && <p>请核对是否误建。存在历史业务记录的零件只能停用，删除后仍保留审计记录。</p>}
+                <Field label="原因"><textarea name="note" required minLength={2} maxLength={500} /></Field>
+                <div className="form-footer"><Submit busy={busy} danger={partAction.type === "delete"}>{partAction.type === "delete" ? "继续核对" : partAction.part.isActive ? "确认停用" : "确认恢复"}</Submit></div>
+              </form>
+            )
+          )}
+        </Modal>
+      )}
     </>
+  );
+}
+function StockOutForm({ parts, busy, save }: {
+  parts: Part[];
+  busy: boolean;
+  save: (body: unknown) => void;
+}) {
+  const [operationId] = useState(newOperationId);
+  const activeParts = parts.filter((part) => part.isActive && part.quantity > 0);
+  const [partId, setPartId] = useState(activeParts[0]?.id || "");
+  const selected = activeParts.find((part) => part.id === partId);
+  if (!activeParts.length) return <Empty>暂无有库存的启用零件</Empty>;
+  return (
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      const body = values(event);
+      save({ ...body, quantity: Number(body.quantity), note: body.note.trim(), operationId });
+    }}>
+      <Field label="出库类型">
+        <select name="type" disabled={busy}>
+          <option value="PURCHASE_RETURN">采购退货出库</option>
+          <option value="SCRAP">报废出库</option>
+        </select>
+      </Field>
+      <Field label="零件">
+        <select name="partId" value={partId} disabled={busy} onChange={(event) => setPartId(event.target.value)}>
+          {activeParts.map((part) => <option key={part.id} value={part.id}>{part.code} · {part.name}（库存 {part.quantity} {part.unit}）</option>)}
+        </select>
+      </Field>
+      <Field label="出库数量"><input name="quantity" type="number" min={1} max={Math.min(selected?.quantity || 0, 100000)} step={1} required disabled={busy} /></Field>
+      <Field label="退货 / 报废原因"><textarea name="note" minLength={2} maxLength={500} required disabled={busy} /></Field>
+      <div className="form-footer"><Submit busy={busy} danger>确认出库</Submit></div>
+    </form>
   );
 }
 function PartForm({
@@ -2018,6 +2150,7 @@ function IncomingForm({
   busy: boolean;
   save: (body: unknown) => void;
 }) {
+  parts = parts.filter((part) => part.isActive);
   if (!parts.length) return <Empty>请先新建零件档案</Empty>;
   return (
     <form
@@ -2064,6 +2197,7 @@ function MaterialForm({
   busy: boolean;
   save: (body: Record<string, unknown>) => void;
 }) {
+  parts = parts.filter((part) => part.isActive);
   if (!parts.length) return <Empty>暂无可申请零件，请联系仓管建档</Empty>;
   return (
     <form
