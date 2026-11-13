@@ -76,8 +76,6 @@ button.danger { border-color: var(--accent-red); background: var(--accent-red); 
 button.danger:hover { border-color: var(--error-text); background: var(--error-text); }
 button.danger-outline { border-color: var(--accent-red); color: var(--error-text); }
 button.danger-outline:hover { background: var(--red-soft); }
-.delete-confirm { display: flex; align-items: center; gap: 8px; margin: 16px 0; }
-.delete-confirm input { width: auto; }
 button.icon { border: 0; background: transparent; width: 34px; height: 34px; padding: 6px; flex-shrink: 0; }
 button.text-button { color: var(--primary); border: 0; background: transparent; padding: 4px 0; min-height: 30px; white-space: nowrap; }
 .shell { min-height: 100vh; display: flex; }

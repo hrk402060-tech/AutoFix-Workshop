@@ -30,7 +30,7 @@ async function sql(query, params = []) {
 }
 async function call(path, token, body, method = body === undefined ? 'GET' : 'POST', expected = 200) {
   const response = await fetch(`http://127.0.0.1:${port}/api${path}`, {
-    method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    method, headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = await response.json();
@@ -62,10 +62,8 @@ async function run() {
   let number = 0;
   const part = (token = owner) => call('/inventory/parts', token, { code: `PART-${++number}`, name: `验收零件${number}`, specification: '测试', unit: '件' }, 'POST', 201);
   const incoming = (p, quantity = 10) => call('/inventory/incoming', warehouse, { partId: p.id, quantity, note: '测试采购入库' }, 'POST', 201);
-  const activeBody = (isActive) => ({ isActive, note: isActive ? '测试恢复' : '测试停用' });
-  const removeBody = (p) => ({ confirmed: true, confirmCode: p.code, note: '测试误建删除' });
+  const activeBody = (isActive) => ({ isActive, note: isActive ? '测试恢复使用' : '测试归档' });
   const active = (p, isActive, token = owner, expected = 200) => call(`/inventory/parts/${p.id}/active`, token, activeBody(isActive), 'PATCH', expected);
-  const remove = (p, token = owner, expected = 200, body = removeBody(p)) => call(`/inventory/parts/${p.id}`, token, body, 'DELETE', expected);
   const outgoing = (p, type, quantity, token = warehouse, expected = 201, operationId = randomUUID(), note = '测试库存退出') =>
     call('/inventory/outgoing', token, { partId: p.id, type, quantity, note, operationId }, 'POST', expected);
   const current = async (p) => (await sql('SELECT * FROM parts WHERE id = ?', [p.id]))[0];
@@ -77,7 +75,6 @@ async function run() {
   for (const token of [employee, warehouse]) {
     await active(empty, false, token, 403);
     await active(empty, true, token, 403);
-    await remove(empty, token, 403);
   }
   for (const type of ['PURCHASE_RETURN', 'SCRAP']) {
     await outgoing(stock, type, 1, employee, 403);
@@ -90,14 +87,19 @@ async function run() {
   await call('/inventory/outgoing', warehouse, { partId: stock.id, type: 'SCRAP', quantity: 1, note: '缺操作编号' }, 'POST', 400);
   assert.equal((await current(stock)).quantity, 10);
   assert.equal((await sql('SELECT count(*) AS n FROM stock_transactions WHERE partId=?', [stock.id]))[0].n, 1);
-  await active(stock, false, owner, 400);
-  await remove(stock, owner, 400);
+  assert.match((await active(stock, false, owner, 400)).message, /不可归档.*退货.*报废/);
+  assert.equal((await current(stock)).quantity, 10);
   for (const note of ['', ' ', '一']) {
     await call(`/inventory/parts/${empty.id}/active`, owner, { isActive: false, note }, 'PATCH', 400);
   }
   await active(empty, false, manager);
   assert.equal((await current(empty)).quantity, 0);
-  await active(empty, false, owner, 400);
+  assert.match((await active(empty, false, owner, 400)).message, /已归档/);
+  // The old physical-delete route must be unavailable even for an unused part.
+  for (const token of [owner, manager, warehouse, employee]) {
+    await call(`/inventory/parts/${empty.id}`, token, { confirmed: true, confirmCode: empty.code, note: '旧接口不可用验证' }, 'DELETE', 404);
+  }
+  assert.ok(await current(empty));
   for (const token of [owner, manager, employee, warehouse]) {
     assert.ok(!(await call('/inventory', token)).parts.some((p) => p.id === empty.id));
   }
@@ -110,7 +112,7 @@ async function run() {
     await call('/inventory?parts=all', token, undefined, 'GET', 403);
   }
   await call('/inventory?parts=invalid', owner, undefined, 'GET', 400);
-  await call('/inventory/incoming', warehouse, { partId: empty.id, quantity: 1, note: '停用禁止入库' }, 'POST', 400);
+  assert.match((await call('/inventory/incoming', warehouse, { partId: empty.id, quantity: 1, note: '归档禁止入库' }, 'POST', 400)).message, /已归档/);
   for (const type of ['PURCHASE_RETURN', 'SCRAP']) await outgoing(empty, type, 1, warehouse, 400);
   await active(empty, true, owner);
   assert.equal((await current(empty)).quantity, 0);
@@ -137,18 +139,20 @@ async function run() {
   assert.deepEqual(race.map((r) => r.status).sort(), [201, 400]); checks++;
   assert.equal((await current(stock)).quantity, 1);
   await outgoing(stock, 'SCRAP', 1);
+  const stockHistory = await sql('SELECT * FROM stock_transactions WHERE partId=? ORDER BY id', [stock.id]);
   await active(stock, false, manager);
   const historical = await call('/inventory?parts=inactive', owner);
   const retained = historical.parts.find((p) => p.id === stock.id);
-  assert.equal(retained.canDelete, false);
-  assert.match(retained.deleteBlockedReason, /历史/);
+  assert.equal(retained.isActive, false);
+  assert.equal(retained.quantity, 0);
+  assert.ok(!('canDelete' in retained) && !('deleteBlockedReason' in retained));
   assert.ok(historical.transactions.some((t) => t.partId === stock.id && t.partName === stock.name && t.actorName === 'warehouse' && t.createdAt));
   const stockCount = (await sql('SELECT count(*) AS n FROM stock_transactions WHERE partId=?', [stock.id]))[0].n;
   await outgoing(stock, 'PURCHASE_RETURN', 3, warehouse, 201, returnOperation);
   assert.equal((await sql('SELECT count(*) AS n FROM stock_transactions WHERE partId=?', [stock.id]))[0].n, stockCount);
-  await remove(stock, owner, 400);
   await active(stock, true, owner);
   assert.equal((await current(stock)).quantity, 0);
+  assert.deepEqual(await sql('SELECT * FROM stock_transactions WHERE partId=? ORDER BY id', [stock.id]), stockHistory);
 
   const vehicle = await call('/vehicles', owner, { plateNumber: '库存退出验收' }, 'POST', 201);
   const order = await call('/work-orders', owner, { vehicleId: vehicle.id, customerRequest: '用料引用验证', itemTitles: ['用料测试'], participantIds: [actors.employee.id] }, 'POST', 201);
@@ -158,12 +162,11 @@ async function run() {
   for (const type of ['OUT', 'RETURN']) {
     const referenced = await part();
     const request = await call('/inventory/requests', employee, requestBody(referenced, type), 'POST', 201);
-    await active(referenced, false, owner, 400);
-    await remove(referenced, owner, 400);
+    assert.match((await active(referenced, false, owner, 400)).message, /待审批/);
+    assert.equal((await current(referenced)).isActive, 1);
     const listed = (await call('/inventory?parts=all', owner)).parts.find((p) => p.id === referenced.id);
     assert.equal(listed.hasPendingRequests, true);
-    assert.match(listed.deleteBlockedReason, /待审批/);
-    // Simulate a legacy disabled part to ensure approval cannot bypass active-state validation.
+    // Simulate a legacy archived part to ensure approval cannot bypass active-state validation.
     await sql('UPDATE parts SET isActive=0 WHERE id=?', [referenced.id]);
     for (const status of ['APPROVED', 'REJECTED']) {
       await call(`/inventory/requests/${request.id}/review`, warehouse, { status }, 'POST', 400);
@@ -171,7 +174,6 @@ async function run() {
     await active(referenced, true, manager);
     await call(`/inventory/requests/${request.id}/review`, warehouse, { status: 'REJECTED' }, 'POST', 201);
     await active(referenced, false);
-    await remove(referenced, owner, 400);
     assert.ok((await call('/inventory', employee)).requests.some((r) => r.id === request.id && r.partName === referenced.name && r.partActive === false));
   }
   const mixed = await part();
@@ -189,45 +191,46 @@ async function run() {
   assert.deepEqual(competing.map((r) => r.status).sort(), [201, 400]); checks++;
   assert.equal((await current(mixed)).quantity, 0);
 
-  const external = await part();
-  await sql('CREATE TABLE test_part_links (id text PRIMARY KEY, componentId text REFERENCES parts(id) ON DELETE CASCADE)');
-  await sql('INSERT INTO test_part_links VALUES (?,?)', ['reference', external.id]);
-  await remove(external, manager, 400);
-  assert.ok(await current(external));
-  assert.equal((await sql('SELECT count(*) AS n FROM test_part_links'))[0].n, 1);
-  assert.equal((await call('/inventory?parts=all', owner)).parts.find((p) => p.id === external.id).canDelete, false);
-  const untyped = await part();
-  await sql('CREATE TABLE test_order_materials (partId text, quantity integer)');
-  await sql('INSERT INTO test_order_materials VALUES (?,?)', [untyped.id, 1]);
-  await remove(untyped, owner, 400);
-
-  const mistaken = await part();
-  for (const body of [
-    { ...removeBody(mistaken), confirmed: false },
-    { ...removeBody(mistaken), confirmCode: 'wrong-code' },
-    { ...removeBody(mistaken), note: ' ' },
-    { note: '缺二次确认' },
-  ]) await remove(mistaken, owner, 400, body);
-  await remove(mistaken, manager);
-  assert.equal(await current(mistaken), undefined);
-  const deletedLogs = await sql('SELECT * FROM audit_logs WHERE resource=? AND resourceId=?', ['part', mistaken.id]);
-  assert.ok(deletedLogs.some((log) => log.action === 'CREATE_PART'));
-  const deletion = deletedLogs.find((log) => log.action === 'DELETE_UNUSED_PART');
-  assert.equal(deletion.actorId, actors.manager.id);
-  assert.equal(JSON.parse(deletion.metadata).code, mistaken.code);
-  assert.equal(JSON.parse(deletion.metadata).note, '测试误建删除');
-  const disabledMistake = await part();
-  await active(disabledMistake, false);
-  await remove(disabledMistake, owner);
-  assert.equal(await current(disabledMistake), undefined);
-  assert.equal((await sql("SELECT count(*) AS n FROM audit_logs WHERE resourceId=? AND action='DISABLE_PART'", [disabledMistake.id]))[0].n, 1);
+  const used = await part();
+  await incoming(used, 2);
+  for (const type of ['OUT', 'RETURN']) {
+    const request = await call('/inventory/requests', employee, requestBody(used, type, 2), 'POST', 201);
+    await call(`/inventory/requests/${request.id}/review`, warehouse, { status: 'APPROVED' }, 'POST', 201);
+  }
+  await outgoing(used, 'PURCHASE_RETURN', 2);
+  const materialHistory = await sql('SELECT * FROM material_requests WHERE partId=? ORDER BY id', [used.id]);
+  const usedStockHistory = await sql('SELECT * FROM stock_transactions WHERE partId=? ORDER BY id', [used.id]);
+  // Historical audit entries are retained; no historical parts need to be recreated.
+  const legacyAuditId = randomUUID();
+  await sql('INSERT INTO audit_logs (id,actorId,action,resource,resourceId,metadata) VALUES (?,?,?,?,?,?)',
+    [legacyAuditId, actors.manager.id, 'DELETE_UNUSED_PART', 'part', randomUUID(), JSON.stringify({ code: 'LEGACY-DELETED', note: '历史审计保留' })]);
+  const legacyAudit = await sql('SELECT * FROM audit_logs WHERE id=?', [legacyAuditId]);
+  await active(used, false, manager);
+  const archivedHistory = await call('/inventory?parts=inactive', owner);
+  assert.ok(archivedHistory.parts.some((p) => p.id === used.id && !p.isActive));
+  assert.equal(archivedHistory.requests.filter((r) => r.partId === used.id && r.partName === used.name && r.partCode === used.code && r.status === 'APPROVED').length, 2);
+  assert.equal(archivedHistory.transactions.filter((t) => t.partId === used.id && t.partName === used.name && t.partCode === used.code).length, usedStockHistory.length);
+  await active(used, true);
+  assert.equal((await current(used)).quantity, 0);
+  assert.deepEqual(await sql('SELECT * FROM material_requests WHERE partId=? ORDER BY id', [used.id]), materialHistory);
+  assert.deepEqual(await sql('SELECT * FROM stock_transactions WHERE partId=? ORDER BY id', [used.id]), usedStockHistory);
+  assert.deepEqual(await sql('SELECT * FROM audit_logs WHERE id=?', [legacyAuditId]), legacyAudit);
+  const archiveLogs = await sql("SELECT * FROM audit_logs WHERE resourceId=? AND action='ARCHIVE_PART'", [used.id]);
+  assert.equal(archiveLogs.length, 1);
+  assert.equal(archiveLogs[0].actorId, actors.manager.id);
+  assert.equal(JSON.parse(archiveLogs[0].metadata).note, '测试归档');
+  assert.equal((await sql("SELECT count(*) AS n FROM audit_logs WHERE resourceId=? AND action='RESTORE_PART'", [used.id]))[0].n, 1);
+  for (const token of [owner, manager, warehouse, employee]) {
+    await call(`/inventory/parts/${used.id}`, token, undefined, 'DELETE', 404);
+  }
+  assert.equal((await sql('SELECT count(*) AS n FROM parts'))[0].n, number);
   const outgoingRows = await sql("SELECT * FROM stock_transactions WHERE type IN ('SCRAP','PURCHASE_RETURN')");
   assert.ok(outgoingRows.every((row) => row.quantity > 0 && row.operationId && row.actorId && row.createdAt && row.note.trim().length >= 2));
   assert.equal((await sql('SELECT count(*) AS n FROM parts WHERE quantity < 0'))[0].n, 0);
   assert.equal((await sql('PRAGMA integrity_check'))[0].integrity_check, 'ok');
   assert.deepEqual(await sql('PRAGMA foreign_key_check'), []);
-  console.log(`PASS ${checks} API checks: role permissions, lifecycle/filtering, pending guards, all history references, double-confirm deletion, idempotent and concurrent stock-out, disabled write/approval denial.`);
-  console.log('PASS SQLite: no negative stock; stock-out reason/actor/time; historical names; independent deletion audit; extension FK/cascade and untyped partId references preserved; integrity/FK checks.');
+  console.log(`PASS ${checks} API checks: archive/restore permissions and filtering, pending/stock guards, preserved history, removed DELETE route, idempotent and concurrent stock-out, archived write/approval denial.`);
+  console.log('PASS SQLite: all parts retained; unchanged material/stock history; archive/restore audits and legacy deletion audits preserved; no negative stock; integrity/FK checks.');
   console.log(`Test data: ${dir}`);
 }
 run().catch((error) => { console.error(error); console.error(logs.slice(-6000)); process.exitCode = 1; }).finally(async () => {
