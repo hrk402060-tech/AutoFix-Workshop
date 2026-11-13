@@ -140,6 +140,9 @@ export class WorkOrdersService {
       if (status === S.CANCELLED) {
         if (order.status === S.CANCELLED) throw new BadRequestException('工单已作废，不可重复操作');
         if (!reason || [...reason].length < 2) throw new BadRequestException('作废原因至少填写 2 个字符');
+        if (await m.existsBy(MaterialRequest, { workOrderId: id, status: 'PENDING' })) {
+          throw new BadRequestException('请先批准或拒绝该工单的待审批领料/退料申请，再作废工单');
+        }
         await m.save(RepairRecord, m.create(RepairRecord, {
           workOrderId: id, authorId: actor.id, note: `工单作废：${reason}`,
         }));

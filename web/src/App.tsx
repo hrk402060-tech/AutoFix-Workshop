@@ -70,7 +70,7 @@ const stockManage = (u: User) => manage(u) || u.role === "WAREHOUSE";
 const editable = (o: Order, u: User) =>
   !["COMPLETED", "CANCELLED"].includes(o.status) && u.role !== "WAREHOUSE";
 const pendingMaterial = (request: Material) =>
-  request.status === "PENDING" && request.workOrderStatus !== "CANCELLED";
+  request.status === "PENDING";
 const values = (event: FormEvent<HTMLFormElement>) =>
   Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<
     string,
@@ -1954,8 +1954,9 @@ function Warehouse({
                     {r.partActive === false && <small className="danger-text">零件已归档</small>}
                   </td>
                   <td>
-                    {pendingMaterial(r) && r.partActive !== false && stockManage(user) && (
+                    {pendingMaterial(r) && stockManage(user) && (
                       <div className="row-actions">
+                        {r.partActive !== false && !["COMPLETED", "CANCELLED"].includes(r.workOrderStatus) && (
                         <button
                           disabled={busy}
                           className="text-button"
@@ -1969,6 +1970,7 @@ function Warehouse({
                         >
                           批准
                         </button>
+                        )}
                         <button
                           disabled={busy}
                           className="text-button danger-text"

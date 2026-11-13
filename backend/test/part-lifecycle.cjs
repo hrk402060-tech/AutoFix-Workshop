@@ -166,14 +166,12 @@ async function run() {
     assert.equal((await current(referenced)).isActive, 1);
     const listed = (await call('/inventory?parts=all', owner)).parts.find((p) => p.id === referenced.id);
     assert.equal(listed.hasPendingRequests, true);
-    // Simulate a legacy archived part to ensure approval cannot bypass active-state validation.
+    // Archived legacy requests can be rejected without restoring the part or moving stock.
     await sql('UPDATE parts SET isActive=0 WHERE id=?', [referenced.id]);
-    for (const status of ['APPROVED', 'REJECTED']) {
-      await call(`/inventory/requests/${request.id}/review`, warehouse, { status }, 'POST', 400);
-    }
-    await active(referenced, true, manager);
+    await call(`/inventory/requests/${request.id}/review`, warehouse, { status: 'APPROVED' }, 'POST', 400);
     await call(`/inventory/requests/${request.id}/review`, warehouse, { status: 'REJECTED' }, 'POST', 201);
-    await active(referenced, false);
+    assert.equal((await current(referenced)).isActive, 0);
+    assert.equal((await current(referenced)).quantity, 0);
     assert.ok((await call('/inventory', employee)).requests.some((r) => r.id === request.id && r.partName === referenced.name && r.partActive === false));
   }
   const mixed = await part();
@@ -229,7 +227,7 @@ async function run() {
   assert.equal((await sql('SELECT count(*) AS n FROM parts WHERE quantity < 0'))[0].n, 0);
   assert.equal((await sql('PRAGMA integrity_check'))[0].integrity_check, 'ok');
   assert.deepEqual(await sql('PRAGMA foreign_key_check'), []);
-  console.log(`PASS ${checks} API checks: archive/restore permissions and filtering, pending/stock guards, preserved history, removed DELETE route, idempotent and concurrent stock-out, archived write/approval denial.`);
+  console.log(`PASS ${checks} API checks: archive/restore permissions and filtering, pending/stock guards, preserved history, removed DELETE route, idempotent and concurrent stock-out, archived approval denial and rejection cleanup.`);
   console.log('PASS SQLite: all parts retained; unchanged material/stock history; archive/restore audits and legacy deletion audits preserved; no negative stock; integrity/FK checks.');
   console.log(`Test data: ${dir}`);
 }

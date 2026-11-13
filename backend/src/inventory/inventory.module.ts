@@ -155,12 +155,11 @@ class InventoryService {
       const request = await m.findOneBy(MaterialRequest, { id });
       if (!request) throw new BadRequestException('申请不存在');
       const order = await this.orders.accessible(actor, request.workOrderId, m);
-      if (order.status === 'CANCELLED') throw new BadRequestException('工单已作废，不可审批物料申请');
       if (request.status !== 'PENDING') throw new BadRequestException('申请已处理，请刷新');
-      const part = await m.findOneByOrFail(Part, { id: request.partId });
-      if (!part.isActive) throw new BadRequestException('零件已归档，不可审批');
       if (status === 'APPROVED') {
         if (['COMPLETED', 'CANCELLED'].includes(order.status)) throw new BadRequestException('工单已结束，不能批准物料变动');
+        const part = await m.findOneByOrFail(Part, { id: request.partId });
+        if (!part.isActive) throw new BadRequestException('零件已归档，不能批准物料变动');
         if (request.type === 'OUT' && part.quantity < request.quantity) throw new BadRequestException('库存不足，无法出库');
         if (request.type === 'RETURN') {
           const approved = await m.find(MaterialRequest, { where: { workOrderId: request.workOrderId, partId: request.partId, applicantId: request.applicantId, status: 'APPROVED' } });

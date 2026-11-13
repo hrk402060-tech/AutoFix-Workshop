@@ -34,8 +34,8 @@ async function call(path, token, body, method = body === undefined ? 'GET' : 'PO
   return data;
 }
 
-async function sql(query, params = []) {
-  const db = new sqlite3.Database(database, sqlite3.OPEN_READONLY);
+async function sql(query, params = [], fixtureWrite = false) {
+  const db = new sqlite3.Database(database, fixtureWrite ? sqlite3.OPEN_READWRITE : sqlite3.OPEN_READONLY);
   try {
     return await new Promise((ok, fail) => db.all(query, params, (error, rows) => error ? fail(error) : ok(rows)));
   } finally {
@@ -95,7 +95,7 @@ async function run() {
   await call('/inventory/incoming', warehouse, { partId: part.id, quantity: 5, note: '验收测试入库' }, 'POST', 201);
   const material = { workOrderId: order.id, partId: part.id, quantity: 1, type: 'OUT', note: '作废前待审批申请' };
   const request = await call('/inventory/requests', employee, material, 'POST', 201);
-  const before = await snapshot(order.id);
+  let before = await snapshot(order.id);
 
   for (const token of [employee, warehouse, actors.outsider.token]) {
     await call(`/work-orders/${order.id}/status`, token, { status: 'CANCELLED', note: '无权作废' }, 'PATCH', 403);
@@ -104,7 +104,10 @@ async function run() {
     await call(`/work-orders/${order.id}/status`, owner, { status: 'CANCELLED', note }, 'PATCH', 400);
   }
   await call(`/work-orders/${order.id}/status`, owner, { status: 'CANCELLED', note: '长'.repeat(2001) }, 'PATCH', 400);
+  assert.match((await call(`/work-orders/${order.id}/status`, owner, { status: 'CANCELLED', note: '待审批阻止作废' }, 'PATCH', 400)).message, /待审批.*再作废/);
   assert.deepEqual(await snapshot(order.id), before, 'Rejected requests must not write anything');
+  await call(`/inventory/requests/${request.id}/review`, warehouse, { status: 'REJECTED' }, 'POST', 201);
+  before = await snapshot(order.id);
   const cancelled = await call(`/work-orders/${order.id}/status`, owner, { status: 'CANCELLED', note: '  重复建单  ' }, 'PATCH');
   assert.equal(cancelled.status, 'CANCELLED');
   assert.equal(cancelled.acceptanceNote, '重复建单');
@@ -156,7 +159,7 @@ async function run() {
   const inventory = await call('/inventory', owner);
   assert.equal(inventory.parts[0].quantity, 5);
   assert.equal(inventory.requests.find((r) => r.id === request.id).workOrderStatus, 'CANCELLED');
-  assert.equal(inventory.requests.find((r) => r.id === request.id).status, 'PENDING');
+  assert.equal(inventory.requests.find((r) => r.id === request.id).status, 'REJECTED');
   assert.equal((await sql('SELECT status FROM work_orders WHERE id = ?', [order.id]))[0].status, 'CANCELLED');
 
   // Voiding is an administrative archive action, including for completed orders.
@@ -185,8 +188,81 @@ async function run() {
   })));
   assert.deepEqual(concurrent.map((r) => r.status).sort(), [200, 400]);
   assert.equal((await snapshot(visible.id)).repair_records.length, 1);
+
+  // Only isolated fixtures simulate legacy records that current APIs no longer create.
+  let fixtureNumber = 0;
+  for (const type of ['OUT', 'RETURN']) {
+    const blocked = await create();
+    const zero = await call('/inventory/parts', owner, { code: `BLOCKED-${type}`, name: '跨模块零库存零件', specification: '', unit: '件' }, 'POST', 201);
+    const pendingRequest = await call('/inventory/requests', employee, { ...material, workOrderId: blocked.id, partId: zero.id, type }, 'POST', 201);
+    const pendingSnapshot = await snapshot(blocked.id);
+    for (const token of [owner, manager]) {
+      assert.match((await call(`/work-orders/${blocked.id}/status`, token, { status: 'CANCELLED', note: '有待办禁止作废' }, 'PATCH', 400)).message, /待审批/);
+    }
+    assert.deepEqual(await snapshot(blocked.id), pendingSnapshot);
+    await call(`/inventory/parts/${zero.id}/active`, owner, { isActive: false, note: '待办未清不可归档' }, 'PATCH', 400);
+    await call(`/inventory/requests/${pendingRequest.id}/review`, warehouse, { status: 'REJECTED' }, 'POST', 201);
+    await call(`/work-orders/${blocked.id}/status`, manager, { status: 'CANCELLED', note: '待办处理后作废' }, 'PATCH');
+    await call(`/inventory/parts/${zero.id}/active`, owner, { isActive: false, note: '待办处理后归档' }, 'PATCH');
+
+    for (const [cancelledOrder, archivedPart, reviewer] of [[true, false, actors.warehouse], [false, true, actors.manager], [true, true, null]]) {
+      const legacyOrder = await create();
+      const legacyPart = await call('/inventory/parts', owner, { code: `LEGACY-${++fixtureNumber}`, name: '遗留待办零件', specification: '', unit: '件' }, 'POST', 201);
+      const legacyRequest = await call('/inventory/requests', employee, { ...material, workOrderId: legacyOrder.id, partId: legacyPart.id, type }, 'POST', 201);
+      if (cancelledOrder) await sql("UPDATE work_orders SET status='CANCELLED' WHERE id=?", [legacyOrder.id], true);
+      if (archivedPart) await sql('UPDATE parts SET isActive=0 WHERE id=?', [legacyPart.id], true);
+      const legacyBefore = await snapshot(legacyOrder.id);
+      const stockBefore = await sql('SELECT * FROM stock_transactions ORDER BY id');
+      const partBefore = await sql('SELECT * FROM parts WHERE id=?', [legacyPart.id]);
+      for (const token of [owner, manager, warehouse]) {
+        await call(`/inventory/requests/${legacyRequest.id}/review`, token, { status: 'APPROVED' }, 'POST', 400);
+      }
+      for (const token of [employee, actors.outsider.token]) {
+        for (const status of ['APPROVED', 'REJECTED']) {
+          await call(`/inventory/requests/${legacyRequest.id}/review`, token, { status }, 'POST', 403);
+        }
+      }
+      assert.deepEqual(await snapshot(legacyOrder.id), legacyBefore);
+      const reviewToken = reviewer?.token || owner;
+      await call(`/inventory/requests/${legacyRequest.id}/review`, reviewToken, { status: 'REJECTED' }, 'POST', 201);
+      await call(`/inventory/requests/${legacyRequest.id}/review`, reviewToken, { status: 'REJECTED' }, 'POST', 400);
+      assert.deepEqual(await sql('SELECT * FROM stock_transactions ORDER BY id'), stockBefore);
+      assert.deepEqual(await sql('SELECT * FROM parts WHERE id=?', [legacyPart.id]), partBefore);
+      const legacyAfter = await snapshot(legacyOrder.id);
+      assert.deepEqual(legacyAfter.repair_records, legacyBefore.repair_records);
+      assert.equal(legacyAfter.material_requests[0].status, 'REJECTED');
+      assert.equal(legacyAfter.logs.length, legacyBefore.logs.length + 1);
+      const rejection = legacyAfter.logs.find((log) => log.action === 'MATERIAL_REJECTED');
+      assert.equal(JSON.parse(rejection.metadata).requestId, legacyRequest.id);
+      assert.equal(rejection.actorId, legacyAfter.material_requests[0].reviewerId);
+      assert.equal(rejection.actorId, reviewer?.id || legacyOrder.createdById);
+      if (!archivedPart) await call(`/inventory/parts/${legacyPart.id}/active`, owner, { isActive: false, note: '遗留待办清理后归档' }, 'PATCH');
+      assert.equal((await sql('SELECT isActive FROM parts WHERE id=?', [legacyPart.id]))[0].isActive, 0);
+    }
+  }
+  const approvedOrder = await create();
+  const approvedRequest = await call('/inventory/requests', employee, { ...material, workOrderId: approvedOrder.id }, 'POST', 201);
+  await call(`/inventory/requests/${approvedRequest.id}/review`, warehouse, { status: 'APPROVED' }, 'POST', 201);
+  const approvedStock = await sql('SELECT * FROM stock_transactions ORDER BY id');
+  await call(`/work-orders/${approvedOrder.id}/status`, owner, { status: 'CANCELLED', note: '批准后可作废' }, 'PATCH');
+  assert.deepEqual(await sql('SELECT * FROM stock_transactions ORDER BY id'), approvedStock);
+
+  const racing = await create();
+  const race = await Promise.all([
+    fetch(`http://127.0.0.1:${port}/api/work-orders/${racing.id}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${owner}` },
+      body: JSON.stringify({ status: 'CANCELLED', note: '并发申请与作废' }),
+    }),
+    fetch(`http://127.0.0.1:${port}/api/inventory/requests`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${employee}` },
+      body: JSON.stringify({ ...material, workOrderId: racing.id }),
+    }),
+  ]);
+  assert.ok([[200, 400], [400, 201]].some((statuses) => statuses.every((status, index) => race[index].status === status)));
+  assert.equal((await sql("SELECT count(*) AS n FROM material_requests r JOIN work_orders o ON o.id=r.workOrderId WHERE r.workOrderId=? AND r.status='PENDING' AND o.status='CANCELLED'", [racing.id]))[0].n, 0);
   assert.equal((await sql('PRAGMA integrity_check'))[0].integrity_check, 'ok');
-  console.log(`PASS ${checks} API checks: owner/manager void, 403 roles, reason validation, hidden defaults, filtered archive, immutable records, all source states, concurrent void.`);
+  assert.deepEqual(await sql('PRAGMA foreign_key_check'), []);
+  console.log(`PASS ${checks} API checks: owner/manager void, role boundaries, pending OUT/RETURN void guards, rejection/approval then void, legacy cancelled/archived rejection-only cleanup, archive after cleanup, audit and stock preservation, concurrent request/void.`);
   console.log('PASS SQLite preservation: order, items, participants, photos/files, repair records, material requests, audit history, unchanged stock, integrity=ok.');
   console.log(`Test data: ${dir}`);
 }
